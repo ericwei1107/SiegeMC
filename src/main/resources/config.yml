@@ -1,5 +1,7 @@
 # SiegeMC default configuration
 
+#NOT THE LIVE SERVER SIDE CONFIG - DONT CHANGE THIS ONE
+
 teams:
   red:
     town: "TeamRed"
