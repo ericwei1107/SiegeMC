@@ -1,0 +1,13 @@
+# SiegeMC default configuration
+
+teams:
+  red:
+    town: "TeamRed"
+  blue:
+    town: "TeamBlue"
+
+capture-point:
+  world: "siegeworld"
+  x: 0
+  y: 64
+  z: 0
