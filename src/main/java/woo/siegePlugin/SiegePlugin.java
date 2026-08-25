@@ -4,11 +4,21 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.arena.ArenaResetService;
+import woo.siegePlugin.arena.ArenaRegionSettings;
+import woo.siegePlugin.arena.ArenaSnapshotService;
+import woo.siegePlugin.arena.ArenaSnapshotStore;
+import woo.siegePlugin.arena.PlacedBlockTracker;
 import woo.siegePlugin.capture.CaptureBanner;
 import woo.siegePlugin.capture.CaptureListener;
 import woo.siegePlugin.capture.CaptureService;
 import woo.siegePlugin.capture.CaptureSettings;
+import woo.siegePlugin.command.SiegeAdminCommand;
 import woo.siegePlugin.command.SiegeCommand;
+import woo.siegePlugin.minecart.MinecartPlacementCooldown;
+import woo.siegePlugin.minecart.MinecartPlacementListener;
+import woo.siegePlugin.minecart.MinecartSettings;
+import woo.siegePlugin.minecart.MinecartSweeper;
 import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
@@ -16,6 +26,7 @@ import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
@@ -47,6 +58,10 @@ public final class SiegePlugin extends JavaPlugin {
     private SidebarService sidebarService;
     private CaptureService captureService;
     private ScoringService scoringService;
+    private SiegePhaseStatus phaseStatus;
+    private ArenaSnapshotService arenaSnapshotService;
+    private ArenaResetService arenaResetService;
+    private MinecartSweeper minecartSweeper;
     private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
@@ -100,19 +115,31 @@ public final class SiegePlugin extends JavaPlugin {
                 captureService,
                 TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
+        // Stage 4.4h.1 replaces this with the real timed cycle.
+        this.phaseStatus = SiegePhaseStatus.alwaysActive();
         this.scoringService = new ScoringService(
                 this,
                 new MatchScoreDao(database),
                 captureService,
                 sidebarService,
-                SiegePhaseStatus.alwaysActive(),
+                phaseStatus,
                 ScoringSettings.fromConfig(getConfig())
         );
+        initializeArenaMaintenance();
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
         captureService.start();
         scoringService.start();
+        minecartSweeper.start();
+
+        if (!arenaResetService.hasSnapshot()) {
+            getLogger().warning("=====================================================================");
+            getLogger().warning("No arena snapshot exists, so /siege admin resetmap is DISABLED.");
+            getLogger().warning("Run /siege admin setresetpos1, setresetpos2, then savesnapshot confirm");
+            getLogger().warning("while the battlefield is clean.");
+            getLogger().warning("=====================================================================");
+        }
 
         getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
     }
@@ -124,6 +151,15 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (scoringService != null) {
             scoringService.stop();
+        }
+        if (arenaSnapshotService != null) {
+            arenaSnapshotService.stop();
+        }
+        if (arenaResetService != null) {
+            arenaResetService.stop();
+        }
+        if (minecartSweeper != null) {
+            minecartSweeper.stop();
         }
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
@@ -168,6 +204,8 @@ public final class SiegePlugin extends JavaPlugin {
 
         problems.addAll(CaptureSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(ScoringSettings.findConfigurationProblems(config));
+        problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
+        problems.addAll(MinecartSettings.findConfigurationProblems(config));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -199,8 +237,14 @@ public final class SiegePlugin extends JavaPlugin {
                 townyAdapter,
                 teamSwitchService,
                 teamDisplayService,
-                captureService,
-                scoringService,
+                new SiegeAdminCommand(
+                        this,
+                        captureService,
+                        scoringService,
+                        arenaSnapshotService,
+                        arenaResetService,
+                        getLogger()
+                ),
                 getLogger()
         );
         siegeCommand.setExecutor(commandHandler);
@@ -223,6 +267,35 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new CaptureListener(captureService),
                 this
+        );
+        getServer().getPluginManager().registerEvents(
+                new SiegeDeathListener(townyAdapter, scoringService, phaseStatus),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new MinecartPlacementListener(
+                        new MinecartPlacementCooldown(MinecartSettings.fromConfig(getConfig()).tntPlacementCooldown())
+                ),
+                this
+        );
+    }
+
+    private void initializeArenaMaintenance() {
+        ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
+        this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore);
+        this.arenaResetService = new ArenaResetService(
+                this,
+                snapshotStore,
+                captureService,
+                // Stage 4.4i.1 supplies the real placed-block tracker.
+                PlacedBlockTracker.notTrackingYet()
+        );
+
+        MinecartSettings minecartSettings = MinecartSettings.fromConfig(getConfig());
+        this.minecartSweeper = new MinecartSweeper(
+                this,
+                Objects.requireNonNull(getConfig().getString("capture-point.world")),
+                minecartSettings.sweepInterval()
         );
     }
 

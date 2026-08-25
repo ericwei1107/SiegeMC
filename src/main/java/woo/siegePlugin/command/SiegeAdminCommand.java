@@ -1,0 +1,187 @@
+package woo.siegePlugin.command;
+
+import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.arena.ArenaRegion;
+import woo.siegePlugin.arena.ArenaRegionSettings;
+import woo.siegePlugin.arena.ArenaResetService;
+import woo.siegePlugin.arena.ArenaSnapshotService;
+import woo.siegePlugin.capture.CaptureService;
+import woo.siegePlugin.score.ScoringService;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/** Everything under {@code /siege admin}. */
+public final class SiegeAdminCommand {
+
+    static final String PERMISSION = "siege.admin";
+
+    private static final List<String> SUBCOMMANDS = List.of(
+            "setbanner",
+            "resetscores",
+            "setresetpos1",
+            "setresetpos2",
+            "savesnapshot",
+            "resetmap"
+    );
+
+    private final JavaPlugin plugin;
+    private final CaptureService captureService;
+    private final ScoringService scoringService;
+    private final ArenaSnapshotService snapshotService;
+    private final ArenaResetService resetService;
+    private final Logger logger;
+
+    public SiegeAdminCommand(
+            JavaPlugin plugin,
+            CaptureService captureService,
+            ScoringService scoringService,
+            ArenaSnapshotService snapshotService,
+            ArenaResetService resetService,
+            Logger logger
+    ) {
+        this.plugin = plugin;
+        this.captureService = captureService;
+        this.scoringService = scoringService;
+        this.snapshotService = snapshotService;
+        this.resetService = resetService;
+        this.logger = logger;
+    }
+
+    public boolean handle(CommandSender sender, String label, String[] args) {
+        if (!sender.hasPermission(PERMISSION)) {
+            sender.sendMessage("You do not have permission to use siege admin commands.");
+            return true;
+        }
+        if (args.length < 2) {
+            sendUsage(sender, label);
+            return true;
+        }
+
+        return switch (args[1].toLowerCase(Locale.ROOT)) {
+            case "setbanner" -> handleSetBanner(sender);
+            case "resetscores" -> handleResetScores(sender, label, args);
+            case "setresetpos1" -> handleSetResetCorner(sender, "pos1");
+            case "setresetpos2" -> handleSetResetCorner(sender, "pos2");
+            case "savesnapshot" -> handleSaveSnapshot(sender, label, args);
+            case "resetmap" -> handleResetMap(sender);
+            default -> {
+                sendUsage(sender, label);
+                yield true;
+            }
+        };
+    }
+
+    public List<String> tabComplete(CommandSender sender, String[] args) {
+        if (!sender.hasPermission(PERMISSION)) {
+            return List.of();
+        }
+        if (args.length == 2) {
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            return SUBCOMMANDS.stream().filter(name -> name.startsWith(prefix)).toList();
+        }
+        if (args.length == 3 && List.of("resetscores", "savesnapshot").contains(args[1].toLowerCase(Locale.ROOT))) {
+            return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
+        }
+        return List.of();
+    }
+
+    private boolean handleSetBanner(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can set the capture banner location.");
+            return true;
+        }
+
+        try {
+            captureService.relocateBanner(player.getLocation());
+        } catch (RuntimeException exception) {
+            logger.log(Level.SEVERE, "Could not move the capture banner", exception);
+            player.sendMessage("The capture banner could not be moved. Check the server log.");
+            return true;
+        }
+
+        String description = captureService.banner().describe();
+        logger.info("Capture banner moved to " + description + " by " + player.getName() + ".");
+        player.sendMessage("Capture banner set to " + description + ". All capture progress was reset.");
+        return true;
+    }
+
+    private boolean handleResetScores(CommandSender sender, String label, String[] args) {
+        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+            sender.sendMessage("This clears the eternal siege score for both teams and cannot be undone.");
+            sender.sendMessage("Run /" + label + " admin resetscores confirm to proceed.");
+            return true;
+        }
+
+        sender.sendMessage("Resetting siege scores...");
+        scoringService.resetScores((reset, failure) -> {
+            if (failure != null) {
+                sender.sendMessage("Siege scores could not be reset. Check the server log.");
+                return;
+            }
+            logger.info("Siege scores reset by " + sender.getName() + ".");
+            sender.sendMessage("Siege scores reset to zero for both teams.");
+        });
+        return true;
+    }
+
+    private boolean handleSetResetCorner(CommandSender sender, String corner) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can set an arena reset corner.");
+            return true;
+        }
+
+        FileConfiguration config = plugin.getConfig();
+        ArenaRegionSettings.saveCorner(config, corner, player.getLocation());
+        plugin.saveConfig();
+
+        Optional<ArenaRegion> region = ArenaRegionSettings.fromConfig(config, plugin.getServer());
+        sender.sendMessage("Arena reset " + corner + " set to "
+                + player.getLocation().getBlockX() + ", "
+                + player.getLocation().getBlockY() + ", "
+                + player.getLocation().getBlockZ() + ".");
+        region.ifPresentOrElse(
+                complete -> sender.sendMessage("Region is now " + complete.blockCount()
+                        + " blocks across " + complete.tileCount() + " tiles."),
+                () -> sender.sendMessage("Set the other corner before saving a snapshot.")
+        );
+        return true;
+    }
+
+    private boolean handleSaveSnapshot(CommandSender sender, String label, String[] args) {
+        Optional<ArenaRegion> region = ArenaRegionSettings.fromConfig(plugin.getConfig(), plugin.getServer());
+        if (region.isEmpty()) {
+            sender.sendMessage("Set both corners first with /" + label + " admin setresetpos1 and setresetpos2.");
+            return true;
+        }
+
+        ArenaRegion arena = region.orElseThrow();
+        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+            sender.sendMessage("This overwrites the saved clean-map snapshot with the arena's CURRENT state.");
+            sender.sendMessage("Region: " + arena.blockCount() + " blocks in " + arena.tileCount() + " tiles.");
+            sender.sendMessage("Only run this on a clean map. Use /" + label + " admin savesnapshot confirm.");
+            return true;
+        }
+
+        snapshotService.capture(arena, sender::sendMessage);
+        return true;
+    }
+
+    private boolean handleResetMap(CommandSender sender) {
+        resetService.scheduleReset(sender::sendMessage);
+        return true;
+    }
+
+    private void sendUsage(CommandSender sender, String label) {
+        sender.sendMessage("Usage: /" + label + " admin <" + String.join("|", SUBCOMMANDS) + ">");
+        if (!resetService.hasSnapshot()) {
+            sender.sendMessage("WARNING: no arena snapshot exists, so /" + label + " admin resetmap is disabled.");
+        }
+    }
+}

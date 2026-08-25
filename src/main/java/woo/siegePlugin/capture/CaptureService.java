@@ -40,6 +40,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     private final CaptureSettings settings;
 
     private BukkitTask task;
+    private boolean suspended;
 
     public CaptureService(
             JavaPlugin plugin,
@@ -130,6 +131,22 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     }
 
     /**
+     * Stops all capture activity while the arena is being rebuilt. Existing
+     * sessions are discarded and no new ones start until
+     * {@link #resumeAfterReset()}.
+     */
+    public void suspendForReset() {
+        suspended = true;
+        resetControl();
+    }
+
+    /** Re-enables captures and rebuilds the banner the restore overwrote. */
+    public void resumeAfterReset() {
+        suspended = false;
+        banner.ensurePresent();
+    }
+
+    /**
      * Moves the capture point and persists it. Progress and control are tied to
      * the old location, so both are discarded.
      */
@@ -148,6 +165,10 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     }
 
     private void tick() {
+        if (suspended) {
+            // Restoring tiles would fight with rebuilding the banner.
+            return;
+        }
         banner.ensurePresent();
         Location bannerLocation = banner.location();
         Instant now = clock.instant();

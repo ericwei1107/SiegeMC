@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ScoringSettingsTest {
 
-    private final ScoringSettings settings = new ScoringSettings(10L);
+    private final ScoringSettings settings = new ScoringSettings(10L, 150L);
 
     @Test
     void scalesPointsByControllerCount() {
@@ -22,12 +22,19 @@ class ScoringSettingsTest {
     }
 
     @Test
-    void allowsScoringToBeDisabledWithZeroBasePoints() {
-        assertEquals(0L, new ScoringSettings(0L).pointsForControllers(5));
+    void exposesAFlatDeathBonusIndependentOfBannerControl() {
+        assertEquals(150L, settings.enemyDeathBonusPoints());
     }
 
     @Test
-    void rejectsNegativeBasePoints() {
-        assertThrows(IllegalArgumentException.class, () -> new ScoringSettings(-1L));
+    void allowsEitherRewardToBeDisabledIndependently() {
+        assertEquals(0L, new ScoringSettings(0L, 150L).pointsForControllers(5));
+        assertEquals(0L, new ScoringSettings(10L, 0L).enemyDeathBonusPoints());
+    }
+
+    @Test
+    void rejectsNegativePointValues() {
+        assertThrows(IllegalArgumentException.class, () -> new ScoringSettings(-1L, 150L));
+        assertThrows(IllegalArgumentException.class, () -> new ScoringSettings(10L, -1L));
     }
 }

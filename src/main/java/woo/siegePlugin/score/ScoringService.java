@@ -112,11 +112,15 @@ public final class ScoringService {
         );
     }
 
-    private void awardBannerControlPoints() {
-        if (!phaseStatus.isActive()) {
-            return;
-        }
+    /**
+     * Credits a team for an enemy death. The caller decides who died; this
+     * decides whether the award currently counts.
+     */
+    public void awardEnemyDeathBonus(Team beneficiary) {
+        award(beneficiary, settings.enemyDeathBonusPoints(), ScoreReason.ENEMY_DEATH_BONUS);
+    }
 
+    private void awardBannerControlPoints() {
         Team controllingTeam = bannerControl.controllingTeam().orElse(null);
         if (controllingTeam == null) {
             return;
@@ -127,8 +131,14 @@ public final class ScoringService {
         award(controllingTeam, points, ScoreReason.BANNER_CONTROL);
     }
 
+    /** The single gate every score change passes through. */
     private void award(Team team, long points, ScoreReason reason) {
-        if (points == 0L) {
+        if (points == 0L || !phaseStatus.isActive()) {
+            return;
+        }
+        if (scores == null) {
+            // The match never loaded, so there is no total to add to.
+            plugin.getLogger().warning("Ignoring a " + reason + " award because " + MATCH_ID + " is not loaded.");
             return;
         }
 

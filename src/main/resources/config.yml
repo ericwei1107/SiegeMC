@@ -34,6 +34,17 @@ capture-point:
 scoring:
   # Points awarded every 20 seconds, per player holding the banner.
   banner-control-base-points: 10
+  # Points credited to the opposing team when a team player dies.
+  enemy-death-bonus-points: 150
+
+minecart:
+  tnt-placement-cooldown-seconds: 5
+  # Riderless carts that have not moved between two sweeps are removed.
+  sweep-interval-seconds: 30
+
+# Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
+# Resets stay disabled until a snapshot exists.
+arena-reset: {}
 
 sidebar:
   title: "Siege Status"

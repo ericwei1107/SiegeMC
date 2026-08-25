@@ -12,8 +12,6 @@ import woo.siegePlugin.team.TeamSwitchResult;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
 import woo.siegePlugin.display.TeamDisplayService;
-import woo.siegePlugin.capture.CaptureService;
-import woo.siegePlugin.score.ScoringService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -27,23 +25,20 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final TownyAdapter townyAdapter;
     private final TeamSwitchService teamSwitchService;
     private final TeamDisplayService teamDisplayService;
-    private final CaptureService captureService;
-    private final ScoringService scoringService;
+    private final SiegeAdminCommand adminCommand;
     private final Logger logger;
 
     public SiegeCommand(
             TownyAdapter townyAdapter,
             TeamSwitchService teamSwitchService,
             TeamDisplayService teamDisplayService,
-            CaptureService captureService,
-            ScoringService scoringService,
+            SiegeAdminCommand adminCommand,
             Logger logger
     ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
-        this.captureService = captureService;
-        this.scoringService = scoringService;
+        this.adminCommand = adminCommand;
         this.logger = logger;
     }
 
@@ -61,60 +56,10 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return handleTeamSwitch(sender, label, args);
         }
         if (args.length >= 1 && args[0].equalsIgnoreCase("admin")) {
-            return handleAdmin(sender, label, args);
+            return adminCommand.handle(sender, label, args);
         }
 
         sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>>");
-        return true;
-    }
-
-    private boolean handleAdmin(CommandSender sender, String label, String[] args) {
-        if (!sender.hasPermission("siege.admin")) {
-            sender.sendMessage("You do not have permission to use siege admin commands.");
-            return true;
-        }
-        if (args.length >= 2 && args[1].equalsIgnoreCase("resetscores")) {
-            return handleResetScores(sender, label, args);
-        }
-        if (args.length != 2 || !args[1].equalsIgnoreCase("setbanner")) {
-            sender.sendMessage("Usage: /" + label + " admin <setbanner|resetscores confirm>");
-            return true;
-        }
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can set the capture banner location.");
-            return true;
-        }
-
-        try {
-            captureService.relocateBanner(player.getLocation());
-        } catch (RuntimeException exception) {
-            logger.log(java.util.logging.Level.SEVERE, "Could not move the capture banner", exception);
-            player.sendMessage("The capture banner could not be moved. Check the server log.");
-            return true;
-        }
-
-        String description = captureService.banner().describe();
-        logger.info("Capture banner moved to " + description + " by " + player.getName() + ".");
-        player.sendMessage("Capture banner set to " + description + ". All capture progress was reset.");
-        return true;
-    }
-
-    private boolean handleResetScores(CommandSender sender, String label, String[] args) {
-        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-            sender.sendMessage("This clears the eternal siege score for both teams and cannot be undone.");
-            sender.sendMessage("Run /" + label + " admin resetscores confirm to proceed.");
-            return true;
-        }
-
-        sender.sendMessage("Resetting siege scores...");
-        scoringService.resetScores((reset, failure) -> {
-            if (failure != null) {
-                sender.sendMessage("Siege scores could not be reset. Check the server log.");
-                return;
-            }
-            logger.info("Siege scores reset by " + sender.getName() + ".");
-            sender.sendMessage("Siege scores reset to zero for both teams.");
-        });
         return true;
     }
 
@@ -223,7 +168,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             if (sender.hasPermission("siege.switch") && "switch".startsWith(prefix)) {
                 suggestions.add("switch");
             }
-            if (sender.hasPermission("siege.admin") && "admin".startsWith(prefix)) {
+            if (sender.hasPermission(SiegeAdminCommand.PERMISSION) && "admin".startsWith(prefix)) {
                 suggestions.add("admin");
             }
             return suggestions;
@@ -234,17 +179,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
                     .filter(team -> team.startsWith(prefix))
                     .toList();
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("admin") && sender.hasPermission("siege.admin")) {
-            String prefix = args[1].toLowerCase(Locale.ROOT);
-            return List.of("setbanner", "resetscores").stream()
-                    .filter(subcommand -> subcommand.startsWith(prefix))
-                    .toList();
-        }
-        if (args.length == 3
-                && args[0].equalsIgnoreCase("admin")
-                && args[1].equalsIgnoreCase("resetscores")
-                && sender.hasPermission("siege.admin")) {
-            return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
+        if (args.length >= 2 && args[0].equalsIgnoreCase("admin")) {
+            return adminCommand.tabComplete(sender, args);
         }
         return List.of();
     }

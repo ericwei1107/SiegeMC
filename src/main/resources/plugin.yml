@@ -11,7 +11,7 @@ softdepend: [CombatLog]
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>|admin <setbanner|resetscores confirm>>
+    usage: /siege <team|switch <red|blue>|admin <setbanner|resetscores|setresetpos1|setresetpos2|savesnapshot|resetmap>>
 
 permissions:
   siege.team:
