@@ -15,7 +15,12 @@ import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
+import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
+import woo.siegePlugin.persistence.SiegeDatabase;
+import woo.siegePlugin.score.ScoringService;
+import woo.siegePlugin.score.ScoringSettings;
 import woo.siegePlugin.state.KitLoadoutProvider;
 import woo.siegePlugin.state.PlayerStateTransitionListener;
 import woo.siegePlugin.state.PlayerStateTransitionService;
@@ -41,7 +46,8 @@ public final class SiegePlugin extends JavaPlugin {
     private TeamDisplayService teamDisplayService;
     private SidebarService sidebarService;
     private CaptureService captureService;
-    private PlayerInventoryDao playerInventoryDao;
+    private ScoringService scoringService;
+    private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
 
@@ -94,10 +100,19 @@ public final class SiegePlugin extends JavaPlugin {
                 captureService,
                 TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
+        this.scoringService = new ScoringService(
+                this,
+                new MatchScoreDao(database),
+                captureService,
+                sidebarService,
+                SiegePhaseStatus.alwaysActive(),
+                ScoringSettings.fromConfig(getConfig())
+        );
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
         captureService.start();
+        scoringService.start();
 
         getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
     }
@@ -107,12 +122,15 @@ public final class SiegePlugin extends JavaPlugin {
         if (captureService != null) {
             captureService.stop();
         }
+        if (scoringService != null) {
+            scoringService.stop();
+        }
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
         }
-        if (playerInventoryDao != null) {
+        if (database != null) {
             try {
-                playerInventoryDao.close();
+                database.close();
             } catch (RuntimeException exception) {
                 getLogger().log(Level.SEVERE, "Could not flush the SiegeMC database during shutdown.", exception);
             }
@@ -149,6 +167,7 @@ public final class SiegePlugin extends JavaPlugin {
         }
 
         problems.addAll(CaptureSettings.findConfigurationProblems(config, getServer()));
+        problems.addAll(ScoringSettings.findConfigurationProblems(config));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -181,6 +200,7 @@ public final class SiegePlugin extends JavaPlugin {
                 teamSwitchService,
                 teamDisplayService,
                 captureService,
+                scoringService,
                 getLogger()
         );
         siegeCommand.setExecutor(commandHandler);
@@ -207,16 +227,16 @@ public final class SiegePlugin extends JavaPlugin {
     }
 
     private void initializePlayerStateTransitions() {
-        this.playerInventoryDao = new PlayerInventoryDao(getDataFolder().toPath().resolve("siege.db"));
+        this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
         this.playerStateTransitionService = new PlayerStateTransitionService(
                 this,
-                playerInventoryDao,
+                new PlayerInventoryDao(database),
                 KitLoadoutProvider.empty(),
                 SpectatorResidencyHandler.deferredUntilStage4_4l()
         );
         this.playerStateTransitions = new PlayerStateTransitions(getServer());
 
-        playerInventoryDao.initialized().whenComplete((ignored, failure) -> {
+        database.initialized().whenComplete((ignored, failure) -> {
             if (failure == null) {
                 getLogger().info("SiegeMC SQLite persistence initialized.");
                 return;

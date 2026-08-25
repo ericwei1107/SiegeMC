@@ -18,13 +18,14 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
  * Runs banner capture sessions against the configured capture point, following
  * SiegeWar's evaluate-existing-then-evaluate-new ordering on a one-second tick.
  */
-public final class CaptureService implements CaptureSessionStatus {
+public final class CaptureService implements CaptureSessionStatus, BannerControlStatus {
 
     private static final long TICK_PERIOD_TICKS = 20L;
 
@@ -90,6 +91,16 @@ public final class CaptureService implements CaptureSessionStatus {
     @Override
     public boolean isActiveParticipant(Player player) {
         return sessions.containsKey(player.getUniqueId());
+    }
+
+    @Override
+    public Optional<Team> controllingTeam() {
+        return control.controllingTeam();
+    }
+
+    @Override
+    public int controllerCount() {
+        return control.controllerCount();
     }
 
     @Override

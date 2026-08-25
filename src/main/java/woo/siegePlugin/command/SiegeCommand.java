@@ -13,6 +13,7 @@ import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.capture.CaptureService;
+import woo.siegePlugin.score.ScoringService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -27,6 +28,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final TeamSwitchService teamSwitchService;
     private final TeamDisplayService teamDisplayService;
     private final CaptureService captureService;
+    private final ScoringService scoringService;
     private final Logger logger;
 
     public SiegeCommand(
@@ -34,12 +36,14 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             TeamSwitchService teamSwitchService,
             TeamDisplayService teamDisplayService,
             CaptureService captureService,
+            ScoringService scoringService,
             Logger logger
     ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
         this.captureService = captureService;
+        this.scoringService = scoringService;
         this.logger = logger;
     }
 
@@ -69,8 +73,11 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage("You do not have permission to use siege admin commands.");
             return true;
         }
+        if (args.length >= 2 && args[1].equalsIgnoreCase("resetscores")) {
+            return handleResetScores(sender, label, args);
+        }
         if (args.length != 2 || !args[1].equalsIgnoreCase("setbanner")) {
-            sender.sendMessage("Usage: /" + label + " admin setbanner");
+            sender.sendMessage("Usage: /" + label + " admin <setbanner|resetscores confirm>");
             return true;
         }
         if (!(sender instanceof Player player)) {
@@ -89,6 +96,25 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         String description = captureService.banner().describe();
         logger.info("Capture banner moved to " + description + " by " + player.getName() + ".");
         player.sendMessage("Capture banner set to " + description + ". All capture progress was reset.");
+        return true;
+    }
+
+    private boolean handleResetScores(CommandSender sender, String label, String[] args) {
+        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+            sender.sendMessage("This clears the eternal siege score for both teams and cannot be undone.");
+            sender.sendMessage("Run /" + label + " admin resetscores confirm to proceed.");
+            return true;
+        }
+
+        sender.sendMessage("Resetting siege scores...");
+        scoringService.resetScores((reset, failure) -> {
+            if (failure != null) {
+                sender.sendMessage("Siege scores could not be reset. Check the server log.");
+                return;
+            }
+            logger.info("Siege scores reset by " + sender.getName() + ".");
+            sender.sendMessage("Siege scores reset to zero for both teams.");
+        });
         return true;
     }
 
@@ -210,7 +236,15 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("admin") && sender.hasPermission("siege.admin")) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
-            return "setbanner".startsWith(prefix) ? List.of("setbanner") : List.of();
+            return List.of("setbanner", "resetscores").stream()
+                    .filter(subcommand -> subcommand.startsWith(prefix))
+                    .toList();
+        }
+        if (args.length == 3
+                && args[0].equalsIgnoreCase("admin")
+                && args[1].equalsIgnoreCase("resetscores")
+                && sender.hasPermission("siege.admin")) {
+            return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
         }
         return List.of();
     }

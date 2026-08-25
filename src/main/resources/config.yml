@@ -31,5 +31,9 @@ capture-point:
   radius: 16
   session-duration-seconds: 30
 
+scoring:
+  # Points awarded every 20 seconds, per player holding the banner.
+  banner-control-base-points: 10
+
 sidebar:
   title: "Siege Status"

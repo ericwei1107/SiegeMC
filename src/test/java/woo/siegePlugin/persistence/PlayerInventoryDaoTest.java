@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,8 +24,8 @@ class PlayerInventoryDaoTest {
 
     @Test
     void missingPlayerHasNoStoredInventory() throws Exception {
-        try (PlayerInventoryDao dao = openDao()) {
-            Optional<byte[]> stored = dao.load(UUID.randomUUID()).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        try (SiegeDatabase database = openDatabase()) {
+            Optional<byte[]> stored = await(new PlayerInventoryDao(database).load(UUID.randomUUID()));
 
             assertEquals(Optional.empty(), stored);
         }
@@ -32,57 +34,55 @@ class PlayerInventoryDaoTest {
     @Test
     void saveCreatesAndThenReplacesStoredInventory() throws Exception {
         UUID playerId = UUID.randomUUID();
-        try (PlayerInventoryDao dao = openDao()) {
-            dao.save(playerId, new byte[]{1, 2, 3}).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-            assertArrayEquals(
-                    new byte[]{1, 2, 3},
-                    dao.load(playerId).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS).orElseThrow()
-            );
+        try (SiegeDatabase database = openDatabase()) {
+            PlayerInventoryDao dao = new PlayerInventoryDao(database);
 
-            dao.save(playerId, new byte[]{9, 8}).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-            assertArrayEquals(
-                    new byte[]{9, 8},
-                    dao.load(playerId).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS).orElseThrow()
-            );
+            await(dao.save(playerId, new byte[]{1, 2, 3}));
+            assertArrayEquals(new byte[]{1, 2, 3}, await(dao.load(playerId)).orElseThrow());
+
+            await(dao.save(playerId, new byte[]{9, 8}));
+            assertArrayEquals(new byte[]{9, 8}, await(dao.load(playerId)).orElseThrow());
         }
     }
 
     @Test
     void closeFlushesQueuedWritesBeforeStoppingWorker() throws Exception {
-        Path database = temporaryDirectory.resolve("flush.db");
+        Path databasePath = temporaryDirectory.resolve("flush.db");
         UUID playerId = UUID.randomUUID();
-        PlayerInventoryDao writer = new PlayerInventoryDao(database);
-        writer.initialized().get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        CompletableFuture<Void> queuedWrite = writer.save(playerId, new byte[]{4, 4, 4});
+        SiegeDatabase writer = new SiegeDatabase(databasePath);
+        await(writer.initialized());
+        CompletableFuture<Void> queuedWrite = new PlayerInventoryDao(writer).save(playerId, new byte[]{4, 4, 4});
 
         writer.close();
-        queuedWrite.get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        await(queuedWrite);
 
-        try (PlayerInventoryDao reader = new PlayerInventoryDao(database)) {
-            reader.initialized().get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        try (SiegeDatabase reader = new SiegeDatabase(databasePath)) {
+            await(reader.initialized());
             assertArrayEquals(
                     new byte[]{4, 4, 4},
-                    reader.load(playerId).get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS).orElseThrow()
+                    await(new PlayerInventoryDao(reader).load(playerId)).orElseThrow()
             );
         }
     }
 
     @Test
     void newOperationsAreRejectedAfterClose() throws Exception {
-        PlayerInventoryDao dao = openDao();
-        dao.close();
+        SiegeDatabase database = openDatabase();
+        PlayerInventoryDao dao = new PlayerInventoryDao(database);
+        database.close();
 
         CompletableFuture<Optional<byte[]>> rejected = dao.load(UUID.randomUUID());
 
-        assertThrows(
-                java.util.concurrent.ExecutionException.class,
-                () -> rejected.get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
-        );
+        assertThrows(ExecutionException.class, () -> await(rejected));
     }
 
-    private PlayerInventoryDao openDao() throws Exception {
-        PlayerInventoryDao dao = new PlayerInventoryDao(temporaryDirectory.resolve(UUID.randomUUID() + ".db"));
-        dao.initialized().get(WAIT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        return dao;
+    private SiegeDatabase openDatabase() throws Exception {
+        SiegeDatabase database = new SiegeDatabase(temporaryDirectory.resolve(UUID.randomUUID() + ".db"));
+        await(database.initialized());
+        return database;
+    }
+
+    private static <T> T await(CompletableFuture<T> future) throws Exception {
+        return future.get(WAIT.toMillis(), TimeUnit.MILLISECONDS);
     }
 }
