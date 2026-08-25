@@ -73,9 +73,8 @@ public final class TeamSwitchService {
 
         townyAdapter.setPlayerTeam(player, destination);
         lastSwitches.put(player.getUniqueId(), clock.instant());
+        captureSessionStatus.clearParticipation(player);
 
-        // No team-specific temporary state exists yet. Stage 4.4f will wire
-        // its capture-session cancellation into captureSessionStatus.
         boolean teleported = player.teleport(spawnLocations.get(destination));
         return TeamSwitchResult.switched(teleported);
     }

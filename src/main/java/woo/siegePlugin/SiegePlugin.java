@@ -4,7 +4,10 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-import woo.siegePlugin.capture.CaptureSessionStatus;
+import woo.siegePlugin.capture.CaptureBanner;
+import woo.siegePlugin.capture.CaptureListener;
+import woo.siegePlugin.capture.CaptureService;
+import woo.siegePlugin.capture.CaptureSettings;
 import woo.siegePlugin.command.SiegeCommand;
 import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.display.TeamDisplayListener;
@@ -37,6 +40,7 @@ public final class SiegePlugin extends JavaPlugin {
     private TeamSwitchService teamSwitchService;
     private TeamDisplayService teamDisplayService;
     private SidebarService sidebarService;
+    private CaptureService captureService;
     private PlayerInventoryDao playerInventoryDao;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
@@ -76,22 +80,33 @@ public final class SiegePlugin extends JavaPlugin {
                 identityColors
         );
         teamDisplayService.setScoreboardReadyHandler(sidebarService::initializePlayer);
+        this.captureService = new CaptureService(
+                this,
+                townyAdapter,
+                sidebarService,
+                CaptureBanner.fromConfig(getConfig(), getServer(), getLogger()),
+                CaptureSettings.fromConfig(getConfig())
+        );
         Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
         this.teamSwitchService = new TeamSwitchService(
                 townyAdapter,
                 CombatLogAdapter.fromPlugin(combatLog),
-                CaptureSessionStatus.noActiveSessions(),
+                captureService,
                 TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
+        captureService.start();
 
         getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
     }
 
     @Override
     public void onDisable() {
+        if (captureService != null) {
+            captureService.stop();
+        }
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
         }
@@ -133,19 +148,7 @@ public final class SiegePlugin extends JavaPlugin {
             problems.add("teams.red.town and teams.blue.town must be different towns");
         }
 
-        String world = config.getString("capture-point.world");
-        if (world == null || world.isBlank()) {
-            problems.add("capture-point.world is missing or empty");
-        } else if (getServer().getWorld(world) == null) {
-            // Note: this check only works if the world is already loaded when
-            // this plugin enables. If load order ever becomes a problem, this
-            // check may need to move to a later point (e.g. a delayed task).
-            problems.add("capture-point.world '" + world + "' is not a loaded world");
-        }
-
-        if (!config.isSet("capture-point.x") || !config.isSet("capture-point.y") || !config.isSet("capture-point.z")) {
-            problems.add("capture-point.x/y/z must all be set");
-        }
+        problems.addAll(CaptureSettings.findConfigurationProblems(config, getServer()));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -177,6 +180,7 @@ public final class SiegePlugin extends JavaPlugin {
                 townyAdapter,
                 teamSwitchService,
                 teamDisplayService,
+                captureService,
                 getLogger()
         );
         siegeCommand.setExecutor(commandHandler);
@@ -194,6 +198,10 @@ public final class SiegePlugin extends JavaPlugin {
         );
         getServer().getPluginManager().registerEvents(
                 new PlayerStateTransitionListener(playerStateTransitionService),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new CaptureListener(captureService),
                 this
         );
     }

@@ -5,6 +5,8 @@
 *.ipr
 *.iws
 
+
+
 # Compiled class file
 *.class
 
@@ -109,3 +111,6 @@ buildNumber.properties
 
 # Common working directory
 run/
+
+# Local planning notes
+Stage_4.4_Implementation_Plan.md

@@ -11,7 +11,7 @@ softdepend: [CombatLog]
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>>
+    usage: /siege <team|switch <red|blue>|admin setbanner>
 
 permissions:
   siege.team:
@@ -20,3 +20,6 @@ permissions:
   siege.switch:
     description: Switch to the other siege team
     default: true
+  siege.admin:
+    description: Use siege administration commands
+    default: op
