@@ -12,6 +12,12 @@ import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
+import woo.siegePlugin.persistence.PlayerInventoryDao;
+import woo.siegePlugin.state.KitLoadoutProvider;
+import woo.siegePlugin.state.PlayerStateTransitionListener;
+import woo.siegePlugin.state.PlayerStateTransitionService;
+import woo.siegePlugin.state.PlayerStateTransitions;
+import woo.siegePlugin.state.SpectatorResidencyHandler;
 import woo.siegePlugin.team.TeamAssignmentListener;
 import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
@@ -21,6 +27,8 @@ import woo.siegePlugin.team.TownyAdapter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletionException;
+import java.util.logging.Level;
 
 public final class SiegePlugin extends JavaPlugin {
 
@@ -29,6 +37,9 @@ public final class SiegePlugin extends JavaPlugin {
     private TeamSwitchService teamSwitchService;
     private TeamDisplayService teamDisplayService;
     private SidebarService sidebarService;
+    private PlayerInventoryDao playerInventoryDao;
+    private PlayerStateTransitionService playerStateTransitionService;
+    private PlayerStateTransitions playerStateTransitions;
 
     @Override
     public void onEnable() {
@@ -50,6 +61,7 @@ public final class SiegePlugin extends JavaPlugin {
         }
 
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
+        initializePlayerStateTransitions();
         this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
         TeamIdentityColors identityColors = TeamIdentityColors.fromConfig(getConfig());
         this.teamDisplayService = new TeamDisplayService(
@@ -76,6 +88,27 @@ public final class SiegePlugin extends JavaPlugin {
         teamDisplayService.initializeOnlinePlayers();
 
         getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
+    }
+
+    @Override
+    public void onDisable() {
+        if (playerStateTransitionService != null) {
+            playerStateTransitionService.shutdown();
+        }
+        if (playerInventoryDao != null) {
+            try {
+                playerInventoryDao.close();
+            } catch (RuntimeException exception) {
+                getLogger().log(Level.SEVERE, "Could not flush the SiegeMC database during shutdown.", exception);
+            }
+        }
+    }
+
+    public PlayerStateTransitions getPlayerStateTransitions() {
+        return Objects.requireNonNull(
+                playerStateTransitions,
+                "Player state transitions are unavailable while SiegeMC is disabled"
+        );
     }
 
     /**
@@ -159,5 +192,43 @@ public final class SiegePlugin extends JavaPlugin {
                 new TeamDisplayListener(teamDisplayService),
                 this
         );
+        getServer().getPluginManager().registerEvents(
+                new PlayerStateTransitionListener(playerStateTransitionService),
+                this
+        );
+    }
+
+    private void initializePlayerStateTransitions() {
+        this.playerInventoryDao = new PlayerInventoryDao(getDataFolder().toPath().resolve("siege.db"));
+        this.playerStateTransitionService = new PlayerStateTransitionService(
+                this,
+                playerInventoryDao,
+                KitLoadoutProvider.empty(),
+                SpectatorResidencyHandler.deferredUntilStage4_4l()
+        );
+        this.playerStateTransitions = new PlayerStateTransitions(getServer());
+
+        playerInventoryDao.initialized().whenComplete((ignored, failure) -> {
+            if (failure == null) {
+                getLogger().info("SiegeMC SQLite persistence initialized.");
+                return;
+            }
+
+            Throwable cause = failure;
+            while (cause instanceof CompletionException && cause.getCause() != null) {
+                cause = cause.getCause();
+            }
+            Throwable databaseFailure = cause;
+            getLogger().log(Level.SEVERE, "SiegeMC SQLite persistence failed to initialize.", databaseFailure);
+            if (!isEnabled()) {
+                return;
+            }
+            getServer().getScheduler().runTask(this, () -> {
+                if (isEnabled()) {
+                    getLogger().severe("Disabling SiegeMC because durable inventory storage is unavailable.");
+                    getServer().getPluginManager().disablePlugin(this);
+                }
+            });
+        });
     }
 }
