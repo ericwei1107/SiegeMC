@@ -37,6 +37,24 @@ scoring:
   # Points credited to the opposing team when a team player dies.
   enemy-death-bonus-points: 150
 
+currency:
+  # Earned by the capturing player each time a capture completes.
+  banner-capture-reward: 50
+  # Earned by the killer. Environmental deaths pay nothing.
+  kill-reward: 25
+
+shop:
+  # Bundle contents are fixed; every price is independently editable.
+  prices:
+    cobblestone: 10
+    golden-apples: 60
+    cobwebs: 40
+    rails: 30
+    bow: 250
+    arrows: 20
+    trident: 300
+    tnt-minecart: 75
+
 minecart:
   tnt-placement-cooldown-seconds: 5
   # Riderless carts that have not moved between two sweeps are removed.

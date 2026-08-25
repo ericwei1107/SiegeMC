@@ -12,6 +12,8 @@ import woo.siegePlugin.team.TeamSwitchResult;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
 import woo.siegePlugin.display.TeamDisplayService;
+import woo.siegePlugin.economy.CurrencyService;
+import woo.siegePlugin.economy.ShopMenu;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -26,6 +28,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final TeamSwitchService teamSwitchService;
     private final TeamDisplayService teamDisplayService;
     private final SiegeAdminCommand adminCommand;
+    private final CurrencyService currencyService;
     private final Logger logger;
 
     public SiegeCommand(
@@ -33,12 +36,14 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             TeamSwitchService teamSwitchService,
             TeamDisplayService teamDisplayService,
             SiegeAdminCommand adminCommand,
+            CurrencyService currencyService,
             Logger logger
     ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
         this.adminCommand = adminCommand;
+        this.currencyService = currencyService;
         this.logger = logger;
     }
 
@@ -58,8 +63,25 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         if (args.length >= 1 && args[0].equalsIgnoreCase("admin")) {
             return adminCommand.handle(sender, label, args);
         }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("shop")) {
+            return handleShop(sender);
+        }
 
-        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>>");
+        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop>");
+        return true;
+    }
+
+    private boolean handleShop(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can open the siege shop.");
+            return true;
+        }
+        if (!player.hasPermission("siege.shop")) {
+            player.sendMessage("You do not have permission to use the siege shop.");
+            return true;
+        }
+
+        ShopMenu.open(player, currencyService);
         return true;
     }
 
@@ -170,6 +192,9 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             }
             if (sender.hasPermission(SiegeAdminCommand.PERMISSION) && "admin".startsWith(prefix)) {
                 suggestions.add("admin");
+            }
+            if (sender.hasPermission("siege.shop") && "shop".startsWith(prefix)) {
+                suggestions.add("shop");
             }
             return suggestions;
         }

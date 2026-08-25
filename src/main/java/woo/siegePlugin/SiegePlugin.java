@@ -27,6 +27,10 @@ import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.death.SiegeDeathListener;
+import woo.siegePlugin.economy.CurrencyService;
+import woo.siegePlugin.economy.CurrencySettings;
+import woo.siegePlugin.economy.ShopListener;
+import woo.siegePlugin.persistence.PlayerBalanceDao;
 import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
@@ -62,6 +66,7 @@ public final class SiegePlugin extends JavaPlugin {
     private ArenaSnapshotService arenaSnapshotService;
     private ArenaResetService arenaResetService;
     private MinecartSweeper minecartSweeper;
+    private CurrencyService currencyService;
     private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
@@ -125,10 +130,17 @@ public final class SiegePlugin extends JavaPlugin {
                 phaseStatus,
                 ScoringSettings.fromConfig(getConfig())
         );
+        this.currencyService = new CurrencyService(
+                this,
+                new PlayerBalanceDao(database),
+                CurrencySettings.fromConfig(getConfig())
+        );
+        captureService.setCaptureRewardHandler(currencyService::awardBannerCapture);
         initializeArenaMaintenance();
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
+        currencyService.loadOnlineBalances();
         captureService.start();
         scoringService.start();
         minecartSweeper.start();
@@ -160,6 +172,9 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (minecartSweeper != null) {
             minecartSweeper.stop();
+        }
+        if (currencyService != null) {
+            currencyService.shutdown();
         }
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
@@ -206,6 +221,7 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(ScoringSettings.findConfigurationProblems(config));
         problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
+        problems.addAll(CurrencySettings.findConfigurationProblems(config));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -245,6 +261,7 @@ public final class SiegePlugin extends JavaPlugin {
                         arenaResetService,
                         getLogger()
                 ),
+                currencyService,
                 getLogger()
         );
         siegeCommand.setExecutor(commandHandler);
@@ -269,7 +286,11 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new SiegeDeathListener(townyAdapter, scoringService, phaseStatus),
+                new SiegeDeathListener(townyAdapter, scoringService, currencyService, phaseStatus),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new ShopListener(currencyService),
                 this
         );
         getServer().getPluginManager().registerEvents(

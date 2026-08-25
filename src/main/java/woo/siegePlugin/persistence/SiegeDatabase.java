@@ -187,6 +187,13 @@ public final class SiegeDatabase implements AutoCloseable {
                         CREATE INDEX IF NOT EXISTS idx_score_ledger_match
                             ON score_ledger(match_id, entry_id)
                         """);
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS player_balances (
+                            player_uuid TEXT PRIMARY KEY,
+                            balance INTEGER NOT NULL DEFAULT 0,
+                            updated_at INTEGER NOT NULL
+                        )
+                        """);
             }
         } catch (Exception exception) {
             closeAfterInitializationFailure(exception);
