@@ -10,6 +10,8 @@ import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
+import woo.siegePlugin.display.SidebarService;
+import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.team.TeamAssignmentListener;
 import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
@@ -26,6 +28,7 @@ public final class SiegePlugin extends JavaPlugin {
     private TeamAssignmentService teamAssignmentService;
     private TeamSwitchService teamSwitchService;
     private TeamDisplayService teamDisplayService;
+    private SidebarService sidebarService;
 
     @Override
     public void onEnable() {
@@ -48,11 +51,19 @@ public final class SiegePlugin extends JavaPlugin {
 
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
         this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
+        TeamIdentityColors identityColors = TeamIdentityColors.fromConfig(getConfig());
         this.teamDisplayService = new TeamDisplayService(
                 getServer(),
                 townyAdapter,
-                TeamIdentityColors.fromConfig(getConfig())
+                identityColors
         );
+        this.sidebarService = new SidebarService(
+                getServer(),
+                teamDisplayService,
+                SidebarSettings.fromConfig(getConfig()),
+                identityColors
+        );
+        teamDisplayService.setScoreboardReadyHandler(sidebarService::initializePlayer);
         Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
         this.teamSwitchService = new TeamSwitchService(
                 townyAdapter,
@@ -112,6 +123,7 @@ public final class SiegePlugin extends JavaPlugin {
 
         problems.addAll(TeamSpawnLocations.findConfigurationProblems(config, getServer()));
         problems.addAll(TeamIdentityColors.findConfigurationProblems(config));
+        problems.addAll(SidebarSettings.findConfigurationProblems(config));
 
         Plugin combatLog = getServer().getPluginManager().getPlugin("CombatLog");
         if (combatLog == null || !combatLog.isEnabled()) {

@@ -5,6 +5,7 @@
 teams:
   red:
     town: "TeamRed"
+    display-name: "Red Team"
     color: "RED"
     spawn:
       world: ""
@@ -13,6 +14,7 @@ teams:
       z: 0
   blue:
     town: "TeamBlue"
+    display-name: "Blue Team"
     color: "BLUE"
     spawn:
       world: ""
@@ -25,3 +27,6 @@ capture-point:
   x: 0
   y: 64
   z: 0
+
+sidebar:
+  title: "Siege Status"

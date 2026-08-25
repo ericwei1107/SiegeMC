@@ -35,6 +35,10 @@ public enum Team {
         return "teams." + configKey + ".color";
     }
 
+    public String displayNameConfigPath() {
+        return "teams." + configKey + ".display-name";
+    }
+
     public String defaultDisplayName() {
         return defaultDisplayName;
     }

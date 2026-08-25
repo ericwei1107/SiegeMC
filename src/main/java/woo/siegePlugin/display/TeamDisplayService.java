@@ -12,6 +12,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * Owns the personal scoreboard assigned to each online player. Stage 4.4d.2
@@ -29,6 +30,8 @@ public final class TeamDisplayService {
     private final TownyAdapter townyAdapter;
     private final TeamIdentityColors identityColors;
     private final Map<UUID, Scoreboard> personalScoreboards = new java.util.HashMap<>();
+    private Consumer<Player> scoreboardReadyHandler = ignored -> {
+    };
 
     public TeamDisplayService(
             Server server,
@@ -45,6 +48,10 @@ public final class TeamDisplayService {
         for (Player player : server.getOnlinePlayers()) {
             rebuildViewer(player);
         }
+    }
+
+    public void setScoreboardReadyHandler(Consumer<Player> scoreboardReadyHandler) {
+        this.scoreboardReadyHandler = Objects.requireNonNull(scoreboardReadyHandler);
     }
 
     public void handleJoin(Player player) {
@@ -104,6 +111,7 @@ public final class TeamDisplayService {
         }
 
         viewer.setScoreboard(scoreboard);
+        scoreboardReadyHandler.accept(viewer);
     }
 
     private Map<DisplayGroup, org.bukkit.scoreboard.Team> createRelativeTeams(Scoreboard scoreboard) {
