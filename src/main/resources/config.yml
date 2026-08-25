@@ -5,8 +5,20 @@
 teams:
   red:
     town: "TeamRed"
+    color: "RED"
+    spawn:
+      world: ""
+      x: 0
+      y: 0
+      z: 0
   blue:
     town: "TeamBlue"
+    color: "BLUE"
+    spawn:
+      world: ""
+      x: 0
+      y: 0
+      z: 0
 
 capture-point:
   world: "siegeworld"

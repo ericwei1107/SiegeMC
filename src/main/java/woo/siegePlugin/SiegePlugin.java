@@ -1,12 +1,31 @@
 package woo.siegePlugin;
 
+import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.capture.CaptureSessionStatus;
+import woo.siegePlugin.command.SiegeCommand;
+import woo.siegePlugin.combat.CombatLogAdapter;
+import woo.siegePlugin.display.TeamDisplayListener;
+import woo.siegePlugin.display.TeamDisplayService;
+import woo.siegePlugin.display.TeamIdentityColors;
+import woo.siegePlugin.team.TeamAssignmentListener;
+import woo.siegePlugin.team.TeamAssignmentService;
+import woo.siegePlugin.team.TeamSpawnLocations;
+import woo.siegePlugin.team.TeamSwitchService;
+import woo.siegePlugin.team.TownyAdapter;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public final class SiegePlugin extends JavaPlugin {
+
+    private TownyAdapter townyAdapter;
+    private TeamAssignmentService teamAssignmentService;
+    private TeamSwitchService teamSwitchService;
+    private TeamDisplayService teamDisplayService;
 
     @Override
     public void onEnable() {
@@ -15,7 +34,7 @@ public final class SiegePlugin extends JavaPlugin {
         // overwrite an existing file.
         saveDefaultConfig();
 
-        List<String> problems = validateConfig();
+        List<String> problems = validateStartup();
 
         if (!problems.isEmpty()) {
             getLogger().severe("SiegeMC failed to start due to invalid configuration:");
@@ -27,16 +46,32 @@ public final class SiegePlugin extends JavaPlugin {
             return; // stop here — nothing below this line should assume config is valid
         }
 
-        getLogger().info("SiegeMC enabled — config validated successfully.");
-        // Real plugin startup logic (Towny adapter, team repository, etc.)
-        // goes here, AFTER this point, once config is confirmed valid.
+        this.townyAdapter = TownyAdapter.fromConfig(getConfig());
+        this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
+        this.teamDisplayService = new TeamDisplayService(
+                getServer(),
+                townyAdapter,
+                TeamIdentityColors.fromConfig(getConfig())
+        );
+        Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
+        this.teamSwitchService = new TeamSwitchService(
+                townyAdapter,
+                CombatLogAdapter.fromPlugin(combatLog),
+                CaptureSessionStatus.noActiveSessions(),
+                TeamSpawnLocations.fromConfig(getConfig(), getServer())
+        );
+        registerCommands();
+        registerListeners();
+        teamDisplayService.initializeOnlinePlayers();
+
+        getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
     }
 
     /**
      * Checks every config value the plugin actually depends on.
      * Returns a list of human-readable problems — empty list means config is valid.
      */
-    private List<String> validateConfig() {
+    private List<String> validateStartup() {
         List<String> problems = new ArrayList<>();
         FileConfiguration config = getConfig();
 
@@ -68,6 +103,49 @@ public final class SiegePlugin extends JavaPlugin {
             problems.add("capture-point.x/y/z must all be set");
         }
 
+        Plugin towny = getServer().getPluginManager().getPlugin("Towny");
+        if (towny == null || !towny.isEnabled()) {
+            problems.add("Towny is missing or not enabled");
+        } else {
+            problems.addAll(TownyAdapter.findConfigurationProblems(config));
+        }
+
+        problems.addAll(TeamSpawnLocations.findConfigurationProblems(config, getServer()));
+        problems.addAll(TeamIdentityColors.findConfigurationProblems(config));
+
+        Plugin combatLog = getServer().getPluginManager().getPlugin("CombatLog");
+        if (combatLog == null || !combatLog.isEnabled()) {
+            problems.add("CombatLog is missing or not enabled");
+        } else {
+            problems.addAll(CombatLogAdapter.findIntegrationProblems(combatLog));
+        }
+
         return problems;
+    }
+
+    private void registerCommands() {
+        PluginCommand siegeCommand = Objects.requireNonNull(
+                getCommand("siege"),
+                "The siege command is missing from plugin.yml"
+        );
+        SiegeCommand commandHandler = new SiegeCommand(
+                townyAdapter,
+                teamSwitchService,
+                teamDisplayService,
+                getLogger()
+        );
+        siegeCommand.setExecutor(commandHandler);
+        siegeCommand.setTabCompleter(commandHandler);
+    }
+
+    private void registerListeners() {
+        getServer().getPluginManager().registerEvents(
+                new TeamAssignmentListener(this, teamAssignmentService, teamDisplayService::handleJoin),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new TeamDisplayListener(teamDisplayService),
+                this
+        );
     }
 }
