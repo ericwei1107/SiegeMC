@@ -14,6 +14,7 @@ import woo.siegePlugin.team.TownyAdapter;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.ShopMenu;
+import woo.siegePlugin.kit.KitEditorListener;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -29,6 +30,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final TeamDisplayService teamDisplayService;
     private final SiegeAdminCommand adminCommand;
     private final CurrencyService currencyService;
+    private final KitEditorListener kitEditorListener;
     private final Logger logger;
 
     public SiegeCommand(
@@ -37,6 +39,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             TeamDisplayService teamDisplayService,
             SiegeAdminCommand adminCommand,
             CurrencyService currencyService,
+            KitEditorListener kitEditorListener,
             Logger logger
     ) {
         this.townyAdapter = townyAdapter;
@@ -44,6 +47,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         this.teamDisplayService = teamDisplayService;
         this.adminCommand = adminCommand;
         this.currencyService = currencyService;
+        this.kitEditorListener = kitEditorListener;
         this.logger = logger;
     }
 
@@ -66,8 +70,25 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         if (args.length >= 1 && args[0].equalsIgnoreCase("shop")) {
             return handleShop(sender);
         }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("kit")) {
+            return handleKit(sender);
+        }
 
-        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop>");
+        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop|kit>");
+        return true;
+    }
+
+    private boolean handleKit(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can edit their siege kit.");
+            return true;
+        }
+        if (!player.hasPermission("siege.kit")) {
+            player.sendMessage("You do not have permission to edit your siege kit.");
+            return true;
+        }
+
+        kitEditorListener.open(player);
         return true;
     }
 
@@ -195,6 +216,9 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             }
             if (sender.hasPermission("siege.shop") && "shop".startsWith(prefix)) {
                 suggestions.add("shop");
+            }
+            if (sender.hasPermission("siege.kit") && "kit".startsWith(prefix)) {
+                suggestions.add("kit");
             }
             return suggestions;
         }

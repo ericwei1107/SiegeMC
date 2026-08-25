@@ -27,6 +27,10 @@ import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.death.SiegeDeathListener;
+import woo.siegePlugin.kit.KitEditorListener;
+import woo.siegePlugin.kit.KitProfile;
+import woo.siegePlugin.kit.KitService;
+import woo.siegePlugin.persistence.KitLoadoutDao;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
@@ -36,7 +40,6 @@ import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
 import woo.siegePlugin.score.ScoringService;
 import woo.siegePlugin.score.ScoringSettings;
-import woo.siegePlugin.state.KitLoadoutProvider;
 import woo.siegePlugin.state.PlayerStateTransitionListener;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.state.PlayerStateTransitions;
@@ -67,6 +70,8 @@ public final class SiegePlugin extends JavaPlugin {
     private ArenaResetService arenaResetService;
     private MinecartSweeper minecartSweeper;
     private CurrencyService currencyService;
+    private KitService kitService;
+    private KitEditorListener kitEditorListener;
     private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
@@ -141,6 +146,7 @@ public final class SiegePlugin extends JavaPlugin {
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
         currencyService.loadOnlineBalances();
+        kitService.loadOnlinePlayers();
         captureService.start();
         scoringService.start();
         minecartSweeper.start();
@@ -175,6 +181,9 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (currencyService != null) {
             currencyService.shutdown();
+        }
+        if (kitService != null) {
+            kitService.shutdown();
         }
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
@@ -222,6 +231,7 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
         problems.addAll(CurrencySettings.findConfigurationProblems(config));
+        problems.addAll(KitProfile.findConfigurationProblems(config));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -262,6 +272,7 @@ public final class SiegePlugin extends JavaPlugin {
                         getLogger()
                 ),
                 currencyService,
+                kitEditorListener,
                 getLogger()
         );
         siegeCommand.setExecutor(commandHandler);
@@ -293,6 +304,7 @@ public final class SiegePlugin extends JavaPlugin {
                 new ShopListener(currencyService),
                 this
         );
+        getServer().getPluginManager().registerEvents(kitEditorListener, this);
         getServer().getPluginManager().registerEvents(
                 new MinecartPlacementListener(
                         new MinecartPlacementCooldown(MinecartSettings.fromConfig(getConfig()).tntPlacementCooldown())
@@ -322,10 +334,16 @@ public final class SiegePlugin extends JavaPlugin {
 
     private void initializePlayerStateTransitions() {
         this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
+        this.kitService = new KitService(
+                this,
+                new KitLoadoutDao(database),
+                KitProfile.fromConfig(getConfig())
+        );
+        this.kitEditorListener = new KitEditorListener(kitService);
         this.playerStateTransitionService = new PlayerStateTransitionService(
                 this,
                 new PlayerInventoryDao(database),
-                KitLoadoutProvider.empty(),
+                kitService,
                 SpectatorResidencyHandler.deferredUntilStage4_4l()
         );
         this.playerStateTransitions = new PlayerStateTransitions(getServer());

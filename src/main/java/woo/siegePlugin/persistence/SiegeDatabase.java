@@ -188,6 +188,13 @@ public final class SiegeDatabase implements AutoCloseable {
                             ON score_ledger(match_id, entry_id)
                         """);
                 statement.execute("""
+                        CREATE TABLE IF NOT EXISTS kit_loadouts (
+                            player_uuid TEXT PRIMARY KEY,
+                            loadout BLOB NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.execute("""
                         CREATE TABLE IF NOT EXISTS player_balances (
                             player_uuid TEXT PRIMARY KEY,
                             balance INTEGER NOT NULL DEFAULT 0,

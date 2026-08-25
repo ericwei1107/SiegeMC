@@ -55,6 +55,14 @@ shop:
     trident: 300
     tnt-minecart: 75
 
+kit:
+  # Bundle contents and enchantments are fixed; only the caps are editable.
+  caps:
+    EXPERIENCE_BOTTLE: 16
+    COOKED_BEEF: 32
+    SPLASH_POTION: 4
+    POTION: 2
+
 minecart:
   tnt-placement-cooldown-seconds: 5
   # Riderless carts that have not moved between two sweeps are removed.
