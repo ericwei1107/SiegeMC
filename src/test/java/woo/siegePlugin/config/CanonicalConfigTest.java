@@ -25,9 +25,12 @@ class CanonicalConfigTest {
         YamlConfiguration config = load("src/main/resources/config.yml");
 
         assertEquals("teamRed", config.getString("teams.red.town"));
-        assertEquals("teamBlue", config.getString("teams.blue.town"));
+        assertEquals("teamBlue_", config.getString("teams.blue.town"));
         assertEquals("SpectatorTown", config.getString("spectator.town"));
-        assertTrue(config.isConfigurationSection("lobby.spawn"));
+        assertEquals("lobby", config.getString("lobby.world"));
+        assertEquals(16.0D, config.getDouble("lobby.spawn.x"));
+        assertEquals(67.0D, config.getDouble("lobby.spawn.y"));
+        assertEquals(-48.0D, config.getDouble("lobby.spawn.z"));
 
         CaptureSettings capture = CaptureSettings.fromConfig(config);
         assertEquals(Duration.ofSeconds(420), capture.sessionDuration());

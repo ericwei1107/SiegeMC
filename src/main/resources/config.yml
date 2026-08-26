@@ -9,29 +9,29 @@ teams:
     display-name: "Red Team"
     color: "RED"
     spawn:
-      world: ""
-      x: 0
-      y: 0
-      z: 0
+      world: "siegeworld"
+      x: 6.116325793347412
+      y: -51.84795199653818
+      z: 103.97480126649488
   blue:
-    town: "teamBlue"
+    town: "teamBlue_"
     display-name: "Blue Team"
     color: "BLUE"
     spawn:
-      world: ""
-      x: 0
-      y: 0
-      z: 0
+      world: "siegeworld"
+      x: 3.4971292926438027
+      y: -59.31937692880424
+      z: -36.165557417735705
 
 spectator:
   town: "SpectatorTown"
 
 lobby:
-  world: ""
+  world: "lobby"
   spawn:
-    x: 0
-    y: 0
-    z: 0
+    x: 16
+    y: 67
+    z: -48
 
 capture-point:
   world: "siegeworld"
