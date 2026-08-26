@@ -163,7 +163,7 @@ public final class SiegePlugin extends JavaPlugin {
                 new PlayerBalanceDao(database),
                 CurrencySettings.fromConfig(getConfig())
         );
-        captureService.setCaptureRewardHandler(currencyService::awardBannerCapture);
+        scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTick);
         initializeArenaMaintenance();
         registerCommands();
         registerListeners();

@@ -4,10 +4,12 @@ import org.junit.jupiter.api.Test;
 import woo.siegePlugin.team.Team;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CaptureControlTest {
@@ -37,6 +39,15 @@ class CaptureControlTest {
         assertEquals(CaptureControl.Outcome.CONTROLLER_ADDED, control.completeSession(second, Team.RED));
         assertEquals(Optional.of(Team.RED), control.controllingTeam());
         assertEquals(2, control.controllerCount());
+    }
+
+    @Test
+    void controllerSnapshotIsImmutableAndIncludesOnlyCompletedControllers() {
+        control.completeSession(first, Team.RED);
+        control.completeSession(second, Team.RED);
+
+        assertEquals(Set.of(first, second), control.controllerIds());
+        assertThrows(UnsupportedOperationException.class, () -> control.controllerIds().clear());
     }
 
     @Test

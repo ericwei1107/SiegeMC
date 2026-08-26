@@ -57,4 +57,8 @@ public final class CaptureControl {
     public int controllerCount() {
         return controllers.size();
     }
+
+    public Set<UUID> controllerIds() {
+        return Set.copyOf(controllers);
+    }
 }

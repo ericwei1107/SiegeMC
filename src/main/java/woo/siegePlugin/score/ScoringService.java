@@ -1,5 +1,6 @@
 package woo.siegePlugin.score;
 
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import woo.siegePlugin.capture.BannerControlStatus;
@@ -11,9 +12,12 @@ import woo.siegePlugin.persistence.MatchRecord;
 import woo.siegePlugin.persistence.ScoreReason;
 import woo.siegePlugin.team.Team;
 
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.logging.Level;
 
 /**
@@ -36,6 +40,8 @@ public final class ScoringService {
     private final MatchDefinition matchDefinition;
     private final SessionPoints sessionPoints = new SessionPoints();
     private final AtomicBoolean active = new AtomicBoolean(true);
+    private Consumer<Player> bannerControlRewardHandler = player -> {
+    };
 
     private MatchRecord scores;
     private BukkitTask task;
@@ -97,6 +103,11 @@ public final class ScoringService {
         publishSessionPoints();
     }
 
+    /** Receives one online completed controller for every active scoring tick. */
+    public void setBannerControlRewardHandler(Consumer<Player> handler) {
+        bannerControlRewardHandler = handler;
+    }
+
     private void finishStart(MatchRecord loaded, Throwable failure) {
         if (failure != null) {
             logScoreFailure("load", failure);
@@ -130,13 +141,23 @@ public final class ScoringService {
 
     private void awardBannerControlPoints() {
         Team controllingTeam = bannerControl.controllingTeam().orElse(null);
-        if (controllingTeam == null) {
+        if (controllingTeam == null || !phaseStatus.isActive()) {
             return;
         }
 
         // SiegeWar's reversal multiplier is deliberately omitted.
         long points = settings.pointsForControllers(bannerControl.controllerCount());
         award(controllingTeam, points, ScoreReason.BANNER_CONTROL);
+        awardBannerControllerCurrency(rewardableControllerIds(phaseStatus, bannerControl));
+    }
+
+    private void awardBannerControllerCurrency(Set<UUID> controllerIds) {
+        for (UUID controllerId : controllerIds) {
+            Player controller = plugin.getServer().getPlayer(controllerId);
+            if (controller != null && controller.isOnline()) {
+                bannerControlRewardHandler.accept(controller);
+            }
+        }
     }
 
     /** The single gate every score change passes through. */
@@ -179,6 +200,13 @@ public final class ScoringService {
         return reason.contributesToSessionPoints()
                 && phaseStatus.isActive()
                 && awardWindowGeneration == currentWindowGeneration;
+    }
+
+    static Set<UUID> rewardableControllerIds(SiegePhaseStatus phaseStatus, BannerControlStatus bannerControl) {
+        if (!phaseStatus.isActive() || bannerControl.controllingTeam().isEmpty()) {
+            return Set.of();
+        }
+        return Set.copyOf(bannerControl.controllerIds());
     }
 
     private void publishScores() {

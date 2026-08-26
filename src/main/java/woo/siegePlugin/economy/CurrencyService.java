@@ -75,9 +75,9 @@ public final class CurrencyService {
         purchasesInFlight.remove(player.getUniqueId());
     }
 
-    public void awardBannerCapture(Player player) {
-        // Stage 4.4j moves this rate to the scoring-tick recipient path.
-        award(player, settings.perCaptureTick(), "capturing the banner");
+    /** Credits one completed banner controller for an active scoring tick. */
+    public void awardBannerControlTick(Player player) {
+        award(player, settings.perCaptureTick(), "holding the banner");
     }
 
     public void awardKill(Player killer) {

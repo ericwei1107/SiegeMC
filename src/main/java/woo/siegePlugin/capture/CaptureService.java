@@ -20,8 +20,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
 
 /**
  * Runs banner capture sessions against the configured capture point, following
@@ -44,8 +44,6 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
 
     private BukkitTask task;
     private boolean suspended;
-    private Consumer<Player> captureRewardHandler = player -> {
-    };
 
     public CaptureService(
             JavaPlugin plugin,
@@ -113,6 +111,11 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     }
 
     @Override
+    public Set<UUID> controllerIds() {
+        return control.controllerIds();
+    }
+
+    @Override
     public void clearParticipation(Player player) {
         sessions.remove(player.getUniqueId());
         bossBars.remove(player);
@@ -147,11 +150,6 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
 
     public CaptureBanner banner() {
         return banner;
-    }
-
-    /** Called on the server thread whenever a player completes a capture. */
-    public void setCaptureRewardHandler(Consumer<Player> handler) {
-        this.captureRewardHandler = handler;
     }
 
     /**
@@ -259,7 +257,6 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         publishControl();
 
         player.sendMessage(Component.text("You captured the banner.", NamedTextColor.GREEN));
-        captureRewardHandler.accept(player);
         if (outcome == CaptureControl.Outcome.CONTROLLER_ADDED) {
             return;
         }
