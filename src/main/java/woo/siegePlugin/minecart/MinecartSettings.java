@@ -17,6 +17,7 @@ public record MinecartSettings(Duration tntPlacementCooldown, Duration stationar
 
     private static final long DEFAULT_COOLDOWN_SECONDS = 30L;
     private static final long DEFAULT_STATIONARY_CLEANUP_SECONDS = 300L;
+    private static final long MAX_COOLDOWN_SECONDS = Integer.MAX_VALUE / 20L;
 
     public MinecartSettings {
         if (tntPlacementCooldown.isNegative()) {
@@ -38,6 +39,9 @@ public record MinecartSettings(Duration tntPlacementCooldown, Duration stationar
         List<String> problems = new ArrayList<>();
         if (config.isSet(COOLDOWN_PATH) && config.getLong(COOLDOWN_PATH, -1L) < 0L) {
             problems.add(COOLDOWN_PATH + " must be zero or a positive number of seconds");
+        }
+        if (config.isSet(COOLDOWN_PATH) && config.getLong(COOLDOWN_PATH, 0L) > MAX_COOLDOWN_SECONDS) {
+            problems.add(COOLDOWN_PATH + " is too large to represent as Minecraft cooldown ticks");
         }
         if (config.isSet(STATIONARY_CLEANUP_PATH) && config.getLong(STATIONARY_CLEANUP_PATH, 0L) <= 0L) {
             problems.add(STATIONARY_CLEANUP_PATH + " must be a positive number of seconds");

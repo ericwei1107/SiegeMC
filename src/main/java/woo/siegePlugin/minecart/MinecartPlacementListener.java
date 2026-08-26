@@ -4,15 +4,13 @@ import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
 
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 
 /**
  * Rate-limits TNT minecart placement.
@@ -22,20 +20,17 @@ import java.time.Instant;
  */
 public final class MinecartPlacementListener implements Listener {
 
-    private final MinecartPlacementCooldown cooldown;
-    private final Clock clock;
+    private final int cooldownTicks;
 
-    public MinecartPlacementListener(MinecartPlacementCooldown cooldown) {
-        this(cooldown, Clock.systemUTC());
-    }
-
-    MinecartPlacementListener(MinecartPlacementCooldown cooldown, Clock clock) {
-        this.cooldown = cooldown;
-        this.clock = clock;
+    public MinecartPlacementListener(Duration cooldown) {
+        this.cooldownTicks = cooldownTicks(cooldown);
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onPlaceTntMinecart(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) {
+            return;
+        }
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
             return;
         }
@@ -49,24 +44,22 @@ public final class MinecartPlacementListener implements Listener {
         }
 
         Player player = event.getPlayer();
-        Instant now = clock.instant();
-        Duration remaining = cooldown.remaining(player.getUniqueId(), now);
-        if (!remaining.isZero()) {
+        if (player.hasCooldown(Material.TNT_MINECART)) {
             event.setCancelled(true);
-            player.sendMessage("You must wait " + formatSeconds(remaining) + " before placing another TNT minecart.");
+            player.sendMessage("You must wait before placing another TNT minecart.");
             return;
         }
-
-        cooldown.record(player.getUniqueId(), now);
+        player.setCooldown(Material.TNT_MINECART, cooldownTicks);
     }
 
-    @EventHandler
-    public void onQuit(PlayerQuitEvent event) {
-        cooldown.forget(event.getPlayer().getUniqueId());
-    }
-
-    static String formatSeconds(Duration remaining) {
-        long seconds = Math.max(1L, (remaining.toMillis() + 999L) / 1000L);
-        return seconds + "s";
+    static int cooldownTicks(Duration cooldown) {
+        if (cooldown.isNegative()) {
+            throw new IllegalArgumentException("cooldown cannot be negative");
+        }
+        try {
+            return Math.toIntExact(Math.multiplyExact(cooldown.toSeconds(), 20L));
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("cooldown is too large", exception);
+        }
     }
 }

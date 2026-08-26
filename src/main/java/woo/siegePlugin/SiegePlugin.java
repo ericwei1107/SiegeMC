@@ -19,7 +19,6 @@ import woo.siegePlugin.capture.CaptureSettings;
 import woo.siegePlugin.config.CanonicalConfig;
 import woo.siegePlugin.command.SiegeAdminCommand;
 import woo.siegePlugin.command.SiegeCommand;
-import woo.siegePlugin.minecart.MinecartPlacementCooldown;
 import woo.siegePlugin.minecart.MinecartPlacementListener;
 import woo.siegePlugin.minecart.MinecartSettings;
 import woo.siegePlugin.minecart.MinecartSweeper;
@@ -349,7 +348,7 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(kitEditorListener, this);
         getServer().getPluginManager().registerEvents(
                 new MinecartPlacementListener(
-                        new MinecartPlacementCooldown(MinecartSettings.fromConfig(getConfig()).tntPlacementCooldown())
+                        MinecartSettings.fromConfig(getConfig()).tntPlacementCooldown()
                 ),
                 this
         );
@@ -376,9 +375,7 @@ public final class SiegePlugin extends JavaPlugin {
         this.minecartSweeper = new MinecartSweeper(
                 this,
                 Objects.requireNonNull(getConfig().getString("capture-point.world")),
-                // Sweep cadence is an implementation detail; age is made
-                // independently configurable in the cleanup stage.
-                Duration.ofSeconds(30L)
+                MinecartSettings.fromConfig(getConfig()).stationaryCleanupThreshold()
         );
     }
 
