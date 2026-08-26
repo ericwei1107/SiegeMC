@@ -21,12 +21,19 @@ public final class ArenaSnapshotService {
 
     private final JavaPlugin plugin;
     private final ArenaSnapshotStore store;
+    private final ArenaMaintenanceCoordinator maintenance;
 
     private BukkitTask task;
+    private ArenaSnapshotStore replacementStore;
 
-    public ArenaSnapshotService(JavaPlugin plugin, ArenaSnapshotStore store) {
+    public ArenaSnapshotService(
+            JavaPlugin plugin,
+            ArenaSnapshotStore store,
+            ArenaMaintenanceCoordinator maintenance
+    ) {
         this.plugin = plugin;
         this.store = store;
+        this.maintenance = maintenance;
     }
 
     public boolean isCapturing() {
@@ -38,6 +45,8 @@ public final class ArenaSnapshotService {
             task.cancel();
             task = null;
         }
+        discardReplacement();
+        maintenance.finishCapture();
     }
 
     /**
@@ -45,23 +54,24 @@ public final class ArenaSnapshotService {
      * Feedback is reported through {@code feedback} on the server thread.
      */
     public void capture(ArenaRegion region, Consumer<String> feedback) {
-        if (isCapturing()) {
-            feedback.accept("A snapshot capture is already running.");
+        if (!maintenance.beginCapture()) {
+            feedback.accept("Arena maintenance is already " + describeState(maintenance.state()) + ".");
             return;
         }
 
         World world = plugin.getServer().getWorld(region.worldName());
         if (world == null) {
             feedback.accept("The arena world '" + region.worldName() + "' is not loaded.");
+            maintenance.finishCapture();
             return;
         }
 
         try {
-            store.clear();
-            store.ensureDirectoryExists();
+            replacementStore = store.prepareReplacement();
         } catch (IOException exception) {
             plugin.getLogger().log(Level.SEVERE, "Could not prepare the arena snapshot directory.", exception);
             feedback.accept("The snapshot directory could not be prepared. Check the server log.");
+            maintenance.finishCapture();
             return;
         }
 
@@ -95,28 +105,36 @@ public final class ArenaSnapshotService {
         Location origin = new Location(world, tile.originX(), tile.originY(), tile.originZ());
         // Entities are excluded: a snapshot restores terrain, not mobs or carts.
         structure.fill(origin, new BlockVector(tile.sizeX(), tile.sizeY(), tile.sizeZ()), false);
-        structures.saveStructure(store.tileFile(tile), structure);
+        structures.saveStructure(replacementStore.tileFile(tile), structure);
     }
 
     private void finish(ArenaRegion region, int tileCount, Consumer<String> feedback) {
-        stop();
+        stopTask();
         try {
             // Written last, so a partial capture never looks like a usable snapshot.
-            store.writeManifest(region, tileCount);
+            replacementStore.writeManifest(region, tileCount);
+            store.commitReplacement(replacementStore);
+            replacementStore = null;
         } catch (IOException exception) {
             plugin.getLogger().log(Level.SEVERE, "Could not write the arena snapshot manifest.", exception);
-            feedback.accept("Tiles were captured but the manifest failed to save. The snapshot is unusable.");
+            feedback.accept("The replacement snapshot could not be saved. The previous snapshot is still available.");
+            discardReplacement();
+            maintenance.finishCapture();
             return;
         }
+
+        maintenance.finishCapture();
 
         plugin.getLogger().info("Arena snapshot complete: " + tileCount + " tiles.");
         feedback.accept("Arena snapshot saved. Map resets are now enabled.");
     }
 
     private void abort(Consumer<String> feedback, String what, Exception exception) {
-        stop();
+        stopTask();
+        discardReplacement();
+        maintenance.finishCapture();
         plugin.getLogger().log(Level.SEVERE, "Arena snapshot failed to " + what + ".", exception);
-        feedback.accept("Snapshot failed while trying to " + what + ". Check the server log.");
+        feedback.accept("Snapshot failed while trying to " + what + ". The previous snapshot is still available.");
     }
 
     private void reportProgress(int done, int total, Consumer<String> feedback) {
@@ -130,5 +148,29 @@ public final class ArenaSnapshotService {
         return region.worldName()
                 + " [" + region.minX() + "," + region.minY() + "," + region.minZ() + "]"
                 + " to [" + region.maxX() + "," + region.maxY() + "," + region.maxZ() + "]";
+    }
+
+    private void stopTask() {
+        if (task != null) {
+            task.cancel();
+            task = null;
+        }
+    }
+
+    private void discardReplacement() {
+        if (replacementStore == null) {
+            return;
+        }
+        try {
+            store.discardReplacement(replacementStore);
+        } catch (IOException exception) {
+            plugin.getLogger().log(Level.WARNING, "Could not remove an incomplete arena snapshot.", exception);
+        } finally {
+            replacementStore = null;
+        }
+    }
+
+    private static String describeState(ArenaMaintenanceCoordinator.State state) {
+        return state.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
     }
 }

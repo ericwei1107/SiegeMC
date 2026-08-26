@@ -14,7 +14,7 @@ public record CaptureSettings(int radiusBlocks, Duration sessionDuration) {
     static final String WORLD_PATH = "capture-point.world";
 
     private static final int DEFAULT_RADIUS_BLOCKS = 16;
-    private static final int DEFAULT_SESSION_SECONDS = 30;
+    private static final int DEFAULT_SESSION_SECONDS = 420;
 
     public CaptureSettings {
         if (radiusBlocks <= 0) {

@@ -50,8 +50,8 @@ class ShopBundleTest {
     void theApprovedBundleListIsPresent() {
         assertEquals(8, ShopBundle.values().length);
         for (String key : java.util.List.of(
-                "cobblestone", "golden-apples", "cobwebs", "rails",
-                "bow", "arrows", "trident", "tnt-minecart"
+                "building-blocks", "golden-apples", "cobwebs", "rails",
+                "enchanted-bow", "arrows", "trident", "tnt-minecart"
         )) {
             assertTrue(
                     Arrays.stream(ShopBundle.values()).anyMatch(bundle -> bundle.configKey().equals(key)),
@@ -61,9 +61,9 @@ class ShopBundleTest {
     }
 
     @Test
-    void everyBundleHasANonNegativeDefaultPrice() {
+    void everyUntunedBundleDefaultsToZero() {
         for (ShopBundle bundle : ShopBundle.values()) {
-            assertTrue(bundle.defaultPrice() >= 0L, bundle + " has a negative default price");
+            assertEquals(0L, bundle.defaultPrice(), bundle + " is not an untuned zero placeholder");
         }
     }
 }

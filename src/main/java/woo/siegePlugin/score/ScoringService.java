@@ -26,9 +26,6 @@ public final class ScoringService {
     /** The single persistent match this server scores into. */
     public static final String MATCH_ID = "eternal-1";
 
-    /** SiegeWar awards banner-control points once per 20-second tick. */
-    private static final long SCORING_PERIOD_TICKS = 400L;
-
     private final JavaPlugin plugin;
     private final MatchScoreDao matchScoreDao;
     private final BannerControlStatus bannerControl;
@@ -107,8 +104,8 @@ public final class ScoringService {
         this.task = plugin.getServer().getScheduler().runTaskTimer(
                 plugin,
                 this::awardBannerControlPoints,
-                SCORING_PERIOD_TICKS,
-                SCORING_PERIOD_TICKS
+                scoringPeriodTicks(),
+                scoringPeriodTicks()
         );
     }
 
@@ -117,7 +114,7 @@ public final class ScoringService {
      * decides whether the award currently counts.
      */
     public void awardEnemyDeathBonus(Team beneficiary) {
-        award(beneficiary, settings.enemyDeathBonusPoints(), ScoreReason.ENEMY_DEATH_BONUS);
+        award(beneficiary, settings.killRewardPoints(), ScoreReason.ENEMY_DEATH_BONUS);
     }
 
     private void awardBannerControlPoints() {
@@ -185,5 +182,9 @@ public final class ScoringService {
             cause = cause.getCause();
         }
         plugin.getLogger().log(Level.SEVERE, "Could not " + operation + " siege scores.", cause);
+    }
+
+    private long scoringPeriodTicks() {
+        return Math.max(1L, settings.tickInterval().toSeconds() * 20L);
     }
 }

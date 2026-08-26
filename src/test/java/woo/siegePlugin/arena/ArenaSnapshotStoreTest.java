@@ -82,4 +82,48 @@ class ArenaSnapshotStoreTest {
         assertEquals(store.directory(), tilePath.getParent());
         assertEquals("tile_16_64_-32.nbt", tilePath.getFileName().toString());
     }
+
+    @Test
+    void completedReplacementPromotesWithoutMixingOldAndNewFiles() throws Exception {
+        ArenaSnapshotStore store = store();
+        store.ensureDirectoryExists();
+        ArenaRegion oldRegion = ArenaRegion.between("oldworld", 0, 0, 0, 15, 15, 15);
+        ArenaTile oldTile = oldRegion.tiles().getFirst();
+        Files.writeString(store.tileFile(oldTile).toPath(), "old");
+        store.writeManifest(oldRegion, 1);
+
+        ArenaSnapshotStore replacement = store.prepareReplacement();
+        ArenaRegion newRegion = ArenaRegion.between("newworld", 16, 16, 16, 31, 31, 31);
+        ArenaTile newTile = newRegion.tiles().getFirst();
+        Files.writeString(replacement.tileFile(newTile).toPath(), "new");
+        replacement.writeManifest(newRegion, 1);
+
+        store.commitReplacement(replacement);
+
+        assertEquals(Optional.of(newRegion), store.loadRegion());
+        assertEquals("new", Files.readString(store.tileFile(newTile).toPath()));
+        assertFalse(Files.exists(store.tileFile(oldTile).toPath()));
+    }
+
+    @Test
+    void incompleteReplacementLeavesKnownGoodSnapshotUntouched() throws Exception {
+        ArenaSnapshotStore store = store();
+        store.ensureDirectoryExists();
+        ArenaRegion oldRegion = ArenaRegion.between("oldworld", 0, 0, 0, 15, 15, 15);
+        ArenaTile oldTile = oldRegion.tiles().getFirst();
+        Files.writeString(store.tileFile(oldTile).toPath(), "old");
+        store.writeManifest(oldRegion, 1);
+
+        ArenaSnapshotStore replacement = store.prepareReplacement();
+        ArenaRegion incompleteRegion = ArenaRegion.between("newworld", 0, 0, 0, 31, 15, 15);
+        replacement.writeManifest(incompleteRegion, incompleteRegion.tileCount());
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                java.io.IOException.class,
+                () -> store.commitReplacement(replacement)
+        );
+
+        assertEquals(Optional.of(oldRegion), store.loadRegion());
+        assertEquals("old", Files.readString(store.tileFile(oldTile).toPath()));
+    }
 }

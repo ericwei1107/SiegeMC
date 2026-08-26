@@ -13,14 +13,14 @@ import java.util.function.Supplier;
  */
 public enum ShopBundle {
 
-    COBBLESTONE("cobblestone", "64 Cobblestone", 10L, 10, () -> new ItemStack(Material.COBBLESTONE, 64)),
-    GOLDEN_APPLES("golden-apples", "4 Golden Apples", 60L, 11, () -> new ItemStack(Material.GOLDEN_APPLE, 4)),
-    COBWEBS("cobwebs", "8 Cobwebs", 40L, 12, () -> new ItemStack(Material.COBWEB, 8)),
-    RAILS("rails", "64 Rails", 30L, 13, () -> new ItemStack(Material.RAIL, 64)),
-    BOW("bow", "Siege Bow", 250L, 19, ShopBundle::siegeBow),
-    ARROWS("arrows", "64 Arrows", 20L, 20, () -> new ItemStack(Material.ARROW, 64)),
-    TRIDENT("trident", "Siege Trident", 300L, 21, ShopBundle::siegeTrident),
-    TNT_MINECART("tnt-minecart", "TNT Minecart", 75L, 22, () -> new ItemStack(Material.TNT_MINECART, 1));
+    COBBLESTONE("building-blocks", "64 Cobblestone", 0L, 10, () -> new ItemStack(Material.COBBLESTONE, 64)),
+    GOLDEN_APPLES("golden-apples", "4 Golden Apples", 0L, 11, () -> new ItemStack(Material.GOLDEN_APPLE, 4)),
+    COBWEBS("cobwebs", "8 Cobwebs", 0L, 12, () -> new ItemStack(Material.COBWEB, 8)),
+    RAILS("rails", "64 Rails", 0L, 13, () -> new ItemStack(Material.RAIL, 64)),
+    BOW("enchanted-bow", "Siege Bow", 0L, 19, ShopBundle::siegeBow),
+    ARROWS("arrows", "64 Arrows", 0L, 20, () -> new ItemStack(Material.ARROW, 64)),
+    TRIDENT("trident", "Siege Trident", 0L, 21, ShopBundle::siegeTrident),
+    TNT_MINECART("tnt-minecart", "TNT Minecart", 0L, 22, () -> new ItemStack(Material.TNT_MINECART, 1));
 
     private final String configKey;
     private final String displayName;

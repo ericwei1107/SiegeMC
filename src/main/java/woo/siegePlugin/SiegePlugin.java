@@ -5,6 +5,8 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.arena.ArenaResetService;
+import woo.siegePlugin.arena.ArenaMaintenanceCoordinator;
+import woo.siegePlugin.arena.ArenaCleanupSettings;
 import woo.siegePlugin.arena.ArenaRegionSettings;
 import woo.siegePlugin.arena.ArenaSnapshotService;
 import woo.siegePlugin.arena.ArenaSnapshotStore;
@@ -13,6 +15,7 @@ import woo.siegePlugin.capture.CaptureBanner;
 import woo.siegePlugin.capture.CaptureListener;
 import woo.siegePlugin.capture.CaptureService;
 import woo.siegePlugin.capture.CaptureSettings;
+import woo.siegePlugin.config.CanonicalConfig;
 import woo.siegePlugin.command.SiegeAdminCommand;
 import woo.siegePlugin.command.SiegeCommand;
 import woo.siegePlugin.minecart.MinecartPlacementCooldown;
@@ -26,6 +29,7 @@ import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.cycle.ActivityCycleSettings;
 import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.kit.KitProfile;
@@ -41,6 +45,7 @@ import woo.siegePlugin.persistence.SiegeDatabase;
 import woo.siegePlugin.score.ScoringService;
 import woo.siegePlugin.score.ScoringSettings;
 import woo.siegePlugin.state.PlayerStateTransitionListener;
+import woo.siegePlugin.state.LobbySettings;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.state.PlayerStateTransitions;
 import woo.siegePlugin.state.SpectatorResidencyHandler;
@@ -50,6 +55,7 @@ import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -228,10 +234,14 @@ public final class SiegePlugin extends JavaPlugin {
 
         problems.addAll(CaptureSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(ScoringSettings.findConfigurationProblems(config));
+        problems.addAll(ActivityCycleSettings.findConfigurationProblems(config));
         problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
+        problems.addAll(ArenaCleanupSettings.findConfigurationProblems(config));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
         problems.addAll(CurrencySettings.findConfigurationProblems(config));
         problems.addAll(KitProfile.findConfigurationProblems(config));
+        problems.addAll(LobbySettings.findConfigurationProblems(config, getServer()));
+        problems.addAll(CanonicalConfig.findConfigurationProblems(config));
 
         Plugin towny = getServer().getPluginManager().getPlugin("Towny");
         if (towny == null || !towny.isEnabled()) {
@@ -315,20 +325,23 @@ public final class SiegePlugin extends JavaPlugin {
 
     private void initializeArenaMaintenance() {
         ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
-        this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore);
+        ArenaMaintenanceCoordinator maintenance = new ArenaMaintenanceCoordinator();
+        this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore, maintenance);
         this.arenaResetService = new ArenaResetService(
                 this,
                 snapshotStore,
                 captureService,
                 // Stage 4.4i.1 supplies the real placed-block tracker.
-                PlacedBlockTracker.notTrackingYet()
+                PlacedBlockTracker.notTrackingYet(),
+                maintenance
         );
 
-        MinecartSettings minecartSettings = MinecartSettings.fromConfig(getConfig());
         this.minecartSweeper = new MinecartSweeper(
                 this,
                 Objects.requireNonNull(getConfig().getString("capture-point.world")),
-                minecartSettings.sweepInterval()
+                // Sweep cadence is an implementation detail; age is made
+                // independently configurable in the cleanup stage.
+                Duration.ofSeconds(30L)
         );
     }
 

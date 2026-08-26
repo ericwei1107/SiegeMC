@@ -1,10 +1,11 @@
 # SiegeMC default configuration
 
-#NOT THE LIVE SERVER SIDE CONFIG - DONT CHANGE THIS ONE
+# This packaged file supplies defaults for new installations. Keep the live
+# plugins/SiegePlugin/config.yml synchronized without overwriting owner values.
 
 teams:
   red:
-    town: "TeamRed"
+    town: "teamRed"
     display-name: "Red Team"
     color: "RED"
     spawn:
@@ -13,7 +14,7 @@ teams:
       y: 0
       z: 0
   blue:
-    town: "TeamBlue"
+    town: "teamBlue"
     display-name: "Blue Team"
     color: "BLUE"
     spawn:
@@ -22,6 +23,16 @@ teams:
       y: 0
       z: 0
 
+spectator:
+  town: "SpectatorTown"
+
+lobby:
+  world: ""
+  spawn:
+    x: 0
+    y: 0
+    z: 0
+
 capture-point:
   world: "siegeworld"
   x: 0
@@ -29,31 +40,42 @@ capture-point:
   z: 0
   # Horizontal distance and vertical difference are bounded independently.
   radius: 16
-  session-duration-seconds: 30
+  session-duration-seconds: 420
 
 scoring:
-  # Points awarded every 20 seconds, per player holding the banner.
-  banner-control-base-points: 10
-  # Points credited to the opposing team when a team player dies.
-  enemy-death-bonus-points: 150
+  tick-interval-seconds: 20
+  points-per-controller-per-tick: 10
+  kill-reward-points: 150
+
+activity-cycle:
+  enabled: true
+  active-duration-seconds: 2700
+  break-duration-seconds: 120
+
+cleanup:
+  map-reset-interval-hours: 6
+  minecart-stationary-cleanup-seconds: 300
+  minecart-placement-cooldown-seconds: 30
+
+sidebar:
+  title: "Siege Status"
 
 currency:
-  # Earned by the capturing player each time a capture completes.
-  banner-capture-reward: 50
-  # Earned by the killer. Environmental deaths pay nothing.
-  kill-reward: 25
+  # Untuned placeholders; adjust only after playtesting.
+  per-kill: 0
+  per-capture-tick: 0
 
 shop:
-  # Bundle contents are fixed; every price is independently editable.
+  # Untuned placeholders; bundle contents remain fixed in code.
   prices:
-    cobblestone: 10
-    golden-apples: 60
-    cobwebs: 40
-    rails: 30
-    bow: 250
-    arrows: 20
-    trident: 300
-    tnt-minecart: 75
+    building-blocks: 0
+    golden-apples: 0
+    cobwebs: 0
+    enchanted-bow: 0
+    arrows: 0
+    trident: 0
+    rails: 0
+    tnt-minecart: 0
 
 kit:
   # Bundle contents and enchantments are fixed; only the caps are editable.
@@ -63,14 +85,6 @@ kit:
     SPLASH_POTION: 4
     POTION: 2
 
-minecart:
-  tnt-placement-cooldown-seconds: 5
-  # Riderless carts that have not moved between two sweeps are removed.
-  sweep-interval-seconds: 30
-
 # Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
 # Resets stay disabled until a snapshot exists.
 arena-reset: {}
-
-sidebar:
-  title: "Siege Status"

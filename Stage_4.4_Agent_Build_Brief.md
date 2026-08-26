@@ -508,3 +508,284 @@ This doesn't relax Rule 2 — each sub-step still needs to actually compile and 
 **4.4k:** A fresh player spawns with the exact default kit; customizing and respawning reflects the saved customization; attempting each duplication exploit listed above fails to duplicate anything.
 
 **4.4l:** On a fresh server with no `SpectatorTown` yet, the plugin creates it automatically on startup with no claimed land — confirm it exists in Towny's registry after boot without any admin command being run. `/siege spectate` enters spectator mode, stores and clears the player's inventory, and moves their Towny residency to `SpectatorTown`; `getPlayerTeam()` correctly reports "no team" for them afterward, and other players cannot see them at all (vanilla spectator invisibility). `/siege rejoin` only works while actually in `SpectatorTown` (rejected otherwise); it assigns to whichever real team currently has fewer players (matching 4.4c's logic exactly, not 4.4d's), **switches them out of spectator gamemode back to survival**, restores their stored inventory, and teleports to the correct spawn — with no cooldown, since this must not be gated by 4.4d's 15-minute switch cooldown. Explicitly confirm a rejoined player is visible, damageable, and cannot fly.
+
+---
+
+## 10. Current implementation discrepancy audit (2026-08-25)
+
+**Why this section exists:** part of Stage 4.4 was implemented by an agent that appears to have followed an earlier or incomplete understanding of the owner-approved decisions in this brief. This section records the discrepancies found by reviewing the current source, packaged configuration, live configuration, persistence schema, tests, and installed CombatLog jar. It is intended as a debugging handoff, not a replacement specification: **the requirements in the stage sections above remain authoritative.**
+
+### How to use this audit
+
+- Resolve these items in stage order, because later systems depend on earlier lifecycle behavior. The recommended order is: 4.4f configuration → 4.4g persistence/session semantics → 4.4h.1 → 4.4i/4.4i.1 → 4.4j → 4.4k → 4.4l.
+- Update both `src/main/resources/config.yml` and `/Users/ericwei/mcserver/dev/plugins/SiegePlugin/config.yml` whenever configuration changes. Preserve the actual live town-name casing and any owner-entered coordinates.
+- Add database migrations for existing installations; changing only a `CREATE TABLE IF NOT EXISTS` statement will not add columns to an already-created SQLite table.
+- Keep Bukkit/world/player/inventory operations on the server thread. Database operations should remain on the existing ordered executor.
+- Do not download, install, replace, move, or update CombatLog. The installed jar has already been inspected directly and is usable; see D-12.
+- There are intentional uncommitted arena-snapshot safety changes in the working tree. Preserve them; see D-14.
+
+### Status summary
+
+| ID | Stage | Severity | Status | Short description |
+|---|---|---:|---|---|
+| D-01 | 4.4f | High | Contradicted | Capture duration is 30 seconds instead of 420 seconds |
+| D-02 | 4.4g | Medium | Partial | Match schema and reset permission do not match the future-ready design |
+| D-03 | 4.4g/4.4h | High | Contradicted | Death rewards incorrectly increase BAT session points |
+| D-04 | 4.4h.1 | High | Missing | ACTIVE/BREAK cycle and controller-preserving break behavior do not exist |
+| D-05 | 4.4i | High | Partial | Arena reset is manual-only; automatic six-hour scheduling is missing |
+| D-06 | 4.4i | High | Contradicted | Minecart configuration and stationary-age behavior are wrong |
+| D-07 | 4.4i.1 | High | Missing | Player-placed block tracking is a no-op placeholder |
+| D-08 | 4.4j | High | Contradicted | Capture currency is paid on capture completion instead of scoring ticks |
+| D-09 | Cross-stage | Medium | Contradicted | Packaged/live config schemas and placeholder values differ from the approved schema |
+| D-10 | 4.4k | High | Contradicted | Default kit is not the approved exact kit; quit-mid-edit loses changes |
+| D-11 | 4.4l | High | Missing | SpectatorTown, spectate, and rejoin are not implemented |
+| D-12 | 4.4d | Low | Partial | CombatLog runtime behavior is valid, but dependency metadata differs from the plan |
+| D-13 | 4.4j | Medium | Defect | Shutdown can durably charge a purchase without delivery or refund |
+| D-14 | 4.4i | High | Fixed in working tree, uncommitted | Snapshot replacement and reset/capture exclusion fixes must be retained |
+| D-15 | Cross-stage | Medium | Testing gap | Passing unit tests do not exercise several missing lifecycle behaviors |
+
+### D-01 — Capture sessions use 30 seconds instead of the approved 420 seconds
+
+**Intention:** 4.4f requires `capture-point.session-duration-seconds: 420`, matching the source-verified seven-minute SiegeWar capture session. The value is configurable but the shipped default must be 420.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/capture/CaptureSettings.java`, `DEFAULT_SESSION_SECONDS`, is `30`.
+- `src/main/resources/config.yml`, `capture-point.session-duration-seconds`, is `30`.
+- `/Users/ericwei/mcserver/dev/plugins/SiegePlugin/config.yml` has the same value.
+- `CaptureService.evaluateNewSessions()` correctly consumes `settings.sessionDuration()`, so the problem is the configured/default value rather than the timer implementation.
+
+**Impact:** players complete control sessions fourteen times faster than intended. Capture completion announcements, controller acquisition, and the currently miswired completion currency reward all occur too early.
+
+**Correction:** change the Java default and both configuration files to 420. Add/adjust a settings test that asserts the default and configured value. Retest leave/re-enter reset behavior using a shortened test-only configuration, not by changing the production default.
+
+### D-02 — Persistent match representation and reset permission are incomplete
+
+**Intention:** the endless siege is match `eternal-1`, represented as a future-ready match record with identity, status, start time, scores, capture-point identity, and an append-only score ledger. `/siege admin resetscores confirm` must use a distinct permission such as `siege.admin.resetscores`.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/score/ScoringService.java` correctly uses `MATCH_ID = "eternal-1"` and persists score changes through `MatchScoreDao`.
+- `src/main/java/woo/siegePlugin/persistence/SiegeDatabase.java`, in the `matches` DDL, only creates `match_id`, `red_score`, `blue_score`, `created_at`, and `updated_at`. It has no `status`, explicit `start_time`, or capture-point identifier.
+- `src/main/java/woo/siegePlugin/command/SiegeAdminCommand.java` checks only the broad `siege.admin` permission before dispatching every admin subcommand.
+- `src/main/resources/plugin.yml` declares only `siege.admin`; it does not declare `siege.admin.resetscores`.
+
+**Impact:** a later round/match lifecycle would require another storage redesign, and an operator with access to unrelated arena administration automatically receives destructive score-reset authority.
+
+**Correction:** add an idempotent schema migration for the missing match metadata, rather than editing only the initial `CREATE TABLE`. Decide and document the initial status/start-time/capture-point values for the existing `eternal-1` row. Declare the distinct permission and check it specifically inside the `resetscores` branch while retaining the confirmation requirement.
+
+### D-03 — Enemy-death score rewards leak into BAT session points
+
+**Intention:** persistent team score increases from both banner-control ticks and qualifying deaths. BAT session points are narrower: they represent only banner-control points accrued during the current `ACTIVE` window. They freeze during `BREAK` and reset when a new `ACTIVE` window starts.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/score/ScoringService.java`, `awardEnemyDeathBonus()`, calls the same generic `award()` method as banner control.
+- In `award()`, every successful persistence completion calls `sessionPoints.add(team, points)` without checking `ScoreReason`.
+- Consequently, every `ENEMY_DEATH_BONUS` adds 150 to the sidebar's BAT points.
+
+**Impact:** BAT points no longer answer “how many banner-control points did this team earn during this active window?” A death can make the session display jump by 150 even when nobody controls the banner.
+
+**Correction:** update session points only for `ScoreReason.BANNER_CONTROL`, preferably in a banner-specific completion path or behind an explicit flag that cannot accidentally include later score reasons. When 4.4h.1 is added, guard against an asynchronous database completion from an old active window adding points after a break/reset; using an active-window generation/token is safer than checking only the phase at callback time.
+
+### D-04 — The periodic ACTIVE/BREAK cycle is still a placeholder
+
+**Intention:** every boot begins in ephemeral `ACTIVE`; after 45 minutes it enters a two-minute `BREAK`, then repeats. Breaks pause scoring/rewards and prevent new capture sessions, cancel only in-progress capture sessions, preserve completed controllers, leave PvP/chat available, and retain the persistent score. A new `ACTIVE` window resets only session points. Admins can force `/siege admin break [seconds]` and `/siege admin resume`.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/SiegePlugin.java` explicitly installs `SiegePhaseStatus.alwaysActive()` with a comment saying 4.4h.1 will replace it later.
+- `src/main/java/woo/siegePlugin/cycle/SiegePhaseStatus.java` has only the permanent-active stub, not a cycle service.
+- There is no `activity-cycle` configuration block, scheduler, transition broadcast, countdown update, or break/resume admin command.
+- `src/main/java/woo/siegePlugin/capture/CaptureService.java`, `resetControl()`, clears both active sessions and completed controllers. Reusing it for a break would violate the owner decision that completed controllers survive breaks.
+
+**Impact:** rewards and captures never pause, BAT time remains “Not started,” session points never reset on a new window, and the maintenance-window commands do not exist.
+
+**Correction:** build a single phase owner/service with explicit `ACTIVE` and `BREAK` transitions and an ephemeral deadline. Add a separate capture operation such as `cancelInProgressSessions()` that removes sessions/boss bars without touching `CaptureControl`; reserve `resetControl()` for restart, team/context exit, reversal, relocation, or explicit/map reset cases. Wire the phase into capture admission, scoring, death/currency rewards, sidebar countdown, broadcasts, and admin overrides. Do not disable normal PvP or chat during breaks.
+
+### D-05 — Arena resets are not scheduled automatically
+
+**Intention:** start a fresh ephemeral six-hour reset timer at every plugin enable. Broadcast warnings at five minutes, one minute, and ten seconds, then restore the snapshot in place. The manual admin command remains independently available.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/arena/ArenaResetService.java` contains a correct five-minute warned countdown and multi-tick tile restoration once `scheduleReset()` is called.
+- `src/main/java/woo/siegePlugin/command/SiegeAdminCommand.java` calls it from `/siege admin resetmap`.
+- No component schedules `scheduleReset()` after six hours, and no `cleanup.map-reset-interval-hours` key exists.
+
+**Impact:** unless the owner runs the manual command, craters and placed structures accumulate indefinitely. The core “endless siege with periodic cleanup” guarantee is absent.
+
+**Correction:** add an automatic scheduler that starts at enable and queues the same reset path after the configured interval. Restarting the server should restart the interval rather than restore persisted elapsed time. Avoid scheduling overlapping countdowns and ensure disable cancels both interval and warning tasks. Keep the manual command functional.
+
+### D-06 — Minecart cooldown and stationary cleanup contradict the approved policy
+
+**Intention:** no minecart caps. Each player has a 30-second TNT-minecart placement cooldown. Any empty minecart that has remained stationary and unattended for longer than 300 seconds is removed.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/minecart/MinecartSettings.java` reads `minecart.tnt-placement-cooldown-seconds` and `minecart.sweep-interval-seconds`, defaulting to 5 and 30 seconds.
+- Both packaged and live configs use those values.
+- `src/main/java/woo/siegePlugin/minecart/MinecartSweeper.java` removes a riderless cart when it occupies the same block on two consecutive sweeps. With a 30-second sweep, legitimate parked carts can disappear after roughly 30–60 seconds.
+- The lack of player/team caps is correct and must remain unchanged.
+
+**Impact:** players can place TNT minecarts six times faster than intended, while tactically parked minecarts are destroyed several minutes earlier than intended.
+
+**Correction:** use the approved `cleanup.minecart-placement-cooldown-seconds: 30` and `cleanup.minecart-stationary-cleanup-seconds: 300` schema. Track when each riderless cart first became stationary; do not treat the sweep interval itself as the age threshold. Movement or acquiring a passenger must reset its stationary timestamp. Keep cleanup resilient to despawned entities and unloaded chunks, and do not add caps.
+
+### D-07 — Player-placed block tracking is not implemented
+
+**Intention:** remember successful player placements in the open battlefield for the current runtime/reset window. Allow Towny to protect natural terrain, but un-cancel a break of a tracked placed block after Towny's normal decision. Remove entries when broken and clear the set after arena reset. Persistence across restart is deliberately not required.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/arena/PlacedBlockTracker.java` exposes only `notTrackingYet()`, a no-op `clearAll()` implementation.
+- `src/main/java/woo/siegePlugin/SiegePlugin.java`, `initializeArenaMaintenance()`, injects that no-op placeholder into `ArenaResetService`.
+- No battlefield block-place or block-break listener exists.
+
+**Impact:** shop-bought cover becomes unbreakable under Towny's wilderness `destroy=false`, even by its placer, until a map reset occurs.
+
+**Correction:** implement a region-aware in-memory tracker and register placement/break listeners. Record only successful placements inside the intended battlefield region and outside protected bases as specified above. Let Towny's earlier listener cancel natural breaks, then at `HIGH` un-cancel only tracked blocks; empirically verify event ordering on the real server. Remove a tracked location only after a successful break and clear all tracking after each reset.
+
+### D-08 — Capture currency is connected to the wrong event
+
+**Intention:** award `currency.per-capture-tick` alongside every 20-second banner-control scoring tick to the players currently counted as completed controllers. A player completing the seven-minute capture session should become a controller but should not receive a one-time “capture completed” payout.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/SiegePlugin.java` wires `captureService.setCaptureRewardHandler(currencyService::awardBannerCapture)`.
+- `src/main/java/woo/siegePlugin/capture/CaptureService.java`, `completeSession()`, invokes that handler once when a session completes.
+- `src/main/java/woo/siegePlugin/score/ScoringService.java`, `awardBannerControlPoints()`, awards team points every 20 seconds but has no currency hook and only sees team/count through `BannerControlStatus`.
+
+**Impact:** currency rewards capture completion rather than sustained banner control. The payout timing and recipients differ from the agreed economy, and the current 30-second capture discrepancy amplifies the problem.
+
+**Correction:** remove the completion payout. Expose a safe snapshot of the current controller UUIDs (or another explicit per-controller reward interface) to the scoring-tick path and credit each qualifying current controller on the same active scoring tick. The reward must pause during `BREAK`. Define how offline controllers are handled consistently with the rule that quitting/context exit removes control; normally the capture quit listener should remove them before the next tick.
+
+### D-09 — Packaged and live configuration do not match the approved final schema
+
+**Intention:** Section 4's target schema is owner-approved. Untuned economy values remain zero placeholders until playtesting. Packaged and live configuration should stay structurally synchronized.
+
+**Current implementation:** both current files match each other for most implemented keys, but they differ from the target schema in important ways:
+
+- Missing `spectator.town`.
+- Missing the complete `lobby` block.
+- Missing `activity-cycle.enabled`, `active-duration-seconds`, and `break-duration-seconds`.
+- Missing `cleanup.map-reset-interval-hours`, `cleanup.minecart-stationary-cleanup-seconds`, and `cleanup.minecart-placement-cooldown-seconds`.
+- Capture duration is 30 rather than 420.
+- Scoring uses `banner-control-base-points` and `enemy-death-bonus-points`; the approved schema uses `tick-interval-seconds`, `points-per-controller-per-tick`, and `kill-reward-points`. The 20-second interval is hardcoded in Java rather than represented by the approved key.
+- Currency uses `banner-capture-reward: 50` and `kill-reward: 25` rather than zero-placeholder `per-capture-tick` and `per-kill`.
+- Shop keys/names differ (`cobblestone`, `bow`) and all prices were assigned nonzero values even though the approved plan deliberately left every price at zero pending playtesting.
+- Minecart settings live under a separate `minecart` block with different meanings and defaults.
+
+**Impact:** runtime behavior silently diverges from owner decisions, and later work may introduce duplicate keys or read the wrong block.
+
+**Correction:** perform one deliberate configuration migration. Update settings readers, validation, packaged config, and live config together. If backward compatibility is desired, accept legacy keys temporarily with a clear warning, but choose one canonical output schema. Do not overwrite owner-filled world/spawn coordinates during migration.
+
+### D-10 — The default kit is not the exact approved kit, and quit-mid-edit discards changes
+
+**Intention:** the exact base profile is full enchanted Mending Netherite armor and sword, a diamond axe, shield, experience bottles, baked potatoes, and Health II/Speed II/Strength II potions. Kit editing must be resilient to close, death, and disconnect without duplication or unintended loss.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/kit/KitProfile.java`, `approved()`, omits Mending from all armor and the sword.
+- It uses `COOKED_BEEF` instead of baked potatoes.
+- It supplies healing and swiftness potion type strings but no explicit level-II effect representation, and it has no Strength potion allowance.
+- `src/main/java/woo/siegePlugin/kit/KitEditorListener.java` correctly cancels click/drag mechanics and saves on `InventoryCloseEvent`, but `onQuit()` removes the editing session without saving it. A player disconnecting mid-edit loses the edits made during that session.
+- `src/main/java/woo/siegePlugin/kit/KitService.java`, `currentLoadout()`, returns the default while an asynchronous saved-kit load is still pending. Opening the editor immediately after join can therefore show a default that may later overwrite the real stored kit if saved.
+
+**Impact:** player equipment and combat balance differ from the approved design. Disconnecting during editing can lose customization, and a join/load race can risk replacing a saved loadout with the default.
+
+**Correction:** encode the exact materials, enchantments, potion base/effect levels, forms, amounts, and slot rules specified above. Add Mending and the missing Strength II potion, and replace the food. On quit, finalize or explicitly roll back the virtual edit session in a documented lossless way; do not merely drop it. Gate editor opening until the player's persisted loadout has finished loading, or represent load readiness explicitly. Add tests for the exact default profile plus close, death, disconnect, and load-race behavior.
+
+### D-11 — SpectatorTown, `/siege spectate`, and `/siege rejoin` are absent
+
+**Intention:** the plugin creates a landless configured SpectatorTown when absent. Spectating stores/clears inventory, cancels capture participation, moves Towny residency, enters vanilla spectator mode, and refreshes displays. Rejoin is allowed only from SpectatorTown, uses smaller-team assignment rather than switch rules, restores inventory/kit, changes to survival, teleports, and refreshes displays.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/state/SpectatorResidencyHandler.java` is an explicit no-op placeholder.
+- `src/main/java/woo/siegePlugin/SiegePlugin.java`, `initializePlayerStateTransitions()`, installs `deferredUntilStage4_4l()`.
+- `src/main/java/woo/siegePlugin/command/SiegeCommand.java` and `src/main/resources/plugin.yml` do not expose `spectate` or `rejoin`.
+- There is no SpectatorTown creation/validation and no spectator config.
+- `src/main/java/woo/siegePlugin/team/TeamAssignmentService.java`, `assignIfMissing()`, treats every no-team result alike. Because `TownyAdapter.getPlayerTeam()` correctly returns empty for a SpectatorTown resident, the current join listener would immediately force such a player into RED/BLUE on reconnect unless an explicit spectator-town exemption runs before assignment.
+- `src/main/java/woo/siegePlugin/state/PlayerStateTransitionService.java` stores contexts only in memory and removes them on quit. On reconnect, `contextOf()` falls back to siege state, which is unsafe for a persisted SpectatorTown resident unless context is reconstructed from Towny/gamemode.
+
+**Impact:** the owner-selected spectator design is unavailable, and simply adding the town/commands without fixing join and reconnect handling would eject spectators back into combat or restore the wrong state.
+
+**Correction:** implement town provisioning through the Towny adapter boundary, then make join handling identify SpectatorTown before generic team assignment. Reconstruct spectator context from authoritative Towny residency on join; do not rely solely on the in-memory context map. Implement the complete transition order, failure rollback, gamemode changes, inventory restoration, teleport, capture cancellation, and display/sidebar refresh. Rejoin must bypass the 15-minute switch cooldown and switch-balance rejection but reuse smaller-team selection.
+
+### D-12 — CombatLog works, but dependency metadata differs from the saved plan
+
+**Intention:** consume the owner-installed CombatLog instance without Maven/download/install behavior; verify its real API and plugin name directly; guarantee it loads before SiegePlugin if it is required for safe switching/lobby exits.
+
+**Current implementation and verification:**
+
+- `src/main/java/woo/siegePlugin/combat/CombatLogAdapter.java` uses reflection and validates `getCombatManager()` plus `isInCombat(Player)` at startup.
+- Direct inspection of `/Users/ericwei/mcserver/dev/plugins/CombatLog.jar` confirmed plugin name `CombatLog`, plugin version `1.19`, Bukkit `api-version: 1.21`, main class `de.nikey.combatLog.CombatLog`, and both reflective methods. The earlier concern that these calls might belong only to CombatX does not apply to this installed jar.
+- No code installs or modifies CombatLog, which correctly follows the owner's instruction.
+- `src/main/resources/plugin.yml` declares `softdepend: [CombatLog]`, while the saved implementation plan says hard dependency. `SiegePlugin` nevertheless treats absence as fatal during startup validation.
+
+**Impact:** this is not currently an API defect, but metadata and runtime policy disagree. A soft dependency plus fatal validation is harder to understand than a declared hard dependency.
+
+**Correction:** either change metadata to a hard dependency, or explicitly revise the plan/commentary to document why soft load ordering plus custom aggregated validation is intentional. **Do not install or replace the existing jar.**
+
+### D-13 — A purchase can be charged during shutdown without delivery or refund
+
+**Intention:** a successful withdrawal must result in exactly one delivered bundle; a failed delivery must refund the price. Shutdown must flush persistence without converting an in-flight purchase into permanent currency loss.
+
+**Current implementation:**
+
+- `src/main/java/woo/siegePlugin/economy/CurrencyService.java`, `purchase()`, asynchronously calls `balanceDao.tryWithdraw()` and schedules delivery/refund in `onServerThread()`.
+- `CurrencyService.shutdown()` sets `active` false and clears in-flight state.
+- `onServerThread()` silently drops every completion after `active` becomes false.
+- `src/main/java/woo/siegePlugin/SiegePlugin.java`, `onDisable()`, shuts down `CurrencyService` before `SiegeDatabase.close()` flushes accepted database operations.
+
+**Failure sequence:** a purchase withdrawal is accepted just before shutdown; database close flushes it durably; the main-thread completion is suppressed because currency is inactive; neither item delivery nor refund runs.
+
+**Impact:** permanent player currency loss with no purchased item.
+
+**Correction:** the robust solution is a durable purchase/outbox row written in the same SQLite transaction as the withdrawal, marked fulfilled only after server-thread delivery, with pending rows reconciled on enable. At minimum, stop accepting new purchases first, drain/resolve all accepted in-flight purchases before suppressing callbacks and closing the database, and refund any completed withdrawal that cannot be delivered. Add a deterministic shutdown-race test.
+
+### D-14 — Preserve the uncommitted arena-snapshot safety repair
+
+Two high-severity defects existed in the committed 4.4i implementation:
+
+1. `savesnapshot` and `resetmap` had independent busy flags, allowing capture to delete/read snapshot files while a reset was restoring them.
+2. A replacement snapshot called `ArenaSnapshotStore.clear()` before capture, destroying the last known-good reset point if the new capture failed halfway through.
+
+The current working tree already contains an intentional repair:
+
+- `src/main/java/woo/siegePlugin/arena/ArenaMaintenanceCoordinator.java` provides shared `IDLE`, `CAPTURING`, `RESET_COUNTDOWN`, and `RESTORING` exclusion.
+- `ArenaSnapshotService` and `ArenaResetService` share that coordinator and release it on success, failure, and disable paths.
+- `ArenaSnapshotStore` captures into a sibling staging directory, validates it, and promotes it only after completion, preserving the prior snapshot on failure.
+- `src/test/java/woo/siegePlugin/arena/ArenaMaintenanceCoordinatorTest.java` and expanded `ArenaSnapshotStoreTest` cover the coordinator and replacement behavior.
+
+**Current repository status:** these files/edits are uncommitted. They are correct safety work, not changes to undo while addressing this audit. Review and commit them with the remaining 4.4i repair, or as a focused safety commit, before switching branches or handing the repository to another tool that assumes a clean tree.
+
+### D-15 — Current tests pass but do not prove lifecycle conformance
+
+The latest generated Surefire reports show 117 tests with zero failures, errors, or skips. That is useful regression coverage, but several major behaviors above have no end-to-end/service-level test:
+
+- No real activity-cycle service exists to test transition timing, boot reset, admin override, controller preservation, or old-window async completions.
+- No placed-block tracker/listener exists to test Towny cancellation override and reset clearing.
+- No automatic arena interval exists to test six-hour scheduling and overlap prevention.
+- `CaptureService` reward wiring and `ScoringService` reason-specific session points are not tested together.
+- No shutdown-race test covers withdrawal followed by plugin disable.
+- Kit tests validate the implemented profile, but do not assert the brief's exact approved item/effect list or disconnect/load-race behavior.
+- No spectator join/reconnect/rejoin tests exist.
+
+Add focused unit tests for pure state machines and timing calculations, DAO migration/transaction tests for persistence, and MockBukkit or equivalent service tests where event/scheduler wiring matters. The manual checklist in Section 9 remains required after automated tests pass.
+
+### Owner-approved behavior already reflected — do not regress while fixing the discrepancies
+
+The following audited decisions are implemented correctly and should remain intact:
+
+- Towny residency is the sole team-membership authority; there is no `team_memberships` table. All Towny calls remain inside `TownyAdapter`.
+- Join balancing assigns the smaller team and chooses RED on a tie.
+- Team switching uses post-move counts, a 15-minute in-memory cooldown, existing CombatLog state, and preserves inventory.
+- Every viewer has one personal scoreboard containing both relative team display and the sidebar; direct friendly fire and teammate collision are disabled, while TNT-minecart damage is not filtered.
+- Lobby/siege inventory snapshots durably preserve storage, armor, offhand/extra contents, and held hotbar slot; a kit is fallback only when no stored siege inventory exists.
+- Capture geometry uses an independently bounded horizontal radius and vertical difference, completed same-team controllers accumulate, reversal clears the previous side, and leaving the radius after completion does not remove control.
+- The persistent match ID is `eternal-1`, score changes are ledgered, and the SiegeWar reversal multiplier is intentionally omitted.
+- Any qualifying RED/BLUE death credits the dead player's opposing team without a killer or location requirement. The same death handler separately requires a real opposing-team killer for currency, so environmental deaths award team score but no currency.
+- Arena restoration is in place, multi-tick, leaves players in the world, reconstructs the banner, and has no minecart caps.
+- Shop bundle shapes are largely correct, including the enchanted bow/trident, 64 arrows/rails, and one TNT minecart; fixes should preserve their exact approved contents while changing reward timing/configuration.

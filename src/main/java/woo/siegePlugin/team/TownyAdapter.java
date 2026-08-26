@@ -22,6 +22,8 @@ import java.util.Optional;
  */
 public final class TownyAdapter {
 
+    private static final String SPECTATOR_TOWN_PATH = "spectator.town";
+
     private final TownyAPI townyApi;
     private final Map<Team, String> townNames;
 
@@ -53,6 +55,11 @@ public final class TownyAdapter {
     public static List<String> findConfigurationProblems(FileConfiguration config) {
         TownyAPI api = TownyAPI.getInstance();
         List<String> problems = new ArrayList<>();
+
+        String spectatorTown = config.getString(SPECTATOR_TOWN_PATH);
+        if (spectatorTown == null || spectatorTown.isBlank()) {
+            problems.add(SPECTATOR_TOWN_PATH + " is missing or empty");
+        }
 
         for (Team team : Team.values()) {
             String townName = config.getString(team.townConfigPath());

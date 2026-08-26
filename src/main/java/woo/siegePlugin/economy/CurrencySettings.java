@@ -8,17 +8,17 @@ import java.util.List;
 import java.util.Map;
 
 /** Currency earn rates and per-bundle shop prices. */
-public record CurrencySettings(long bannerCaptureReward, long killReward, Map<ShopBundle, Long> prices) {
+public record CurrencySettings(long perCaptureTick, long perKill, Map<ShopBundle, Long> prices) {
 
-    static final String CAPTURE_REWARD_PATH = "currency.banner-capture-reward";
-    static final String KILL_REWARD_PATH = "currency.kill-reward";
+    static final String PER_CAPTURE_TICK_PATH = "currency.per-capture-tick";
+    static final String PER_KILL_PATH = "currency.per-kill";
     static final String PRICE_ROOT = "shop.prices";
 
-    private static final long DEFAULT_CAPTURE_REWARD = 50L;
-    private static final long DEFAULT_KILL_REWARD = 25L;
+    private static final long DEFAULT_CAPTURE_REWARD = 0L;
+    private static final long DEFAULT_KILL_REWARD = 0L;
 
     public CurrencySettings {
-        if (bannerCaptureReward < 0L || killReward < 0L) {
+        if (perCaptureTick < 0L || perKill < 0L) {
             throw new IllegalArgumentException("Currency rewards cannot be negative");
         }
         // Built by key rather than EnumMap's copy constructor, which rejects an
@@ -35,15 +35,15 @@ public record CurrencySettings(long bannerCaptureReward, long killReward, Map<Sh
         }
 
         return new CurrencySettings(
-                config.getLong(CAPTURE_REWARD_PATH, DEFAULT_CAPTURE_REWARD),
-                config.getLong(KILL_REWARD_PATH, DEFAULT_KILL_REWARD),
+                config.getLong(PER_CAPTURE_TICK_PATH, DEFAULT_CAPTURE_REWARD),
+                config.getLong(PER_KILL_PATH, DEFAULT_KILL_REWARD),
                 prices
         );
     }
 
     public static List<String> findConfigurationProblems(FileConfiguration config) {
         List<String> problems = new ArrayList<>();
-        for (String path : List.of(CAPTURE_REWARD_PATH, KILL_REWARD_PATH)) {
+        for (String path : List.of(PER_CAPTURE_TICK_PATH, PER_KILL_PATH)) {
             if (config.isSet(path) && config.getLong(path, -1L) < 0L) {
                 problems.add(path + " must be zero or a positive amount");
             }

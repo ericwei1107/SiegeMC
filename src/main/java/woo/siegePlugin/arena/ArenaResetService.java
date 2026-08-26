@@ -40,6 +40,7 @@ public final class ArenaResetService {
     private final ArenaSnapshotStore store;
     private final CaptureService captureService;
     private final PlacedBlockTracker placedBlocks;
+    private final ArenaMaintenanceCoordinator maintenance;
     private final Random random = new Random();
     private final List<BukkitTask> countdownTasks = new ArrayList<>();
 
@@ -50,12 +51,14 @@ public final class ArenaResetService {
             JavaPlugin plugin,
             ArenaSnapshotStore store,
             CaptureService captureService,
-            PlacedBlockTracker placedBlocks
+            PlacedBlockTracker placedBlocks,
+            ArenaMaintenanceCoordinator maintenance
     ) {
         this.plugin = plugin;
         this.store = store;
         this.captureService = captureService;
         this.placedBlocks = placedBlocks;
+        this.maintenance = maintenance;
     }
 
     public boolean hasSnapshot() {
@@ -72,6 +75,7 @@ public final class ArenaResetService {
             restoreTask.cancel();
             restoreTask = null;
         }
+        maintenance.finishReset();
     }
 
     /** Starts the warned countdown that ends in a full arena restore. */
@@ -81,8 +85,9 @@ public final class ArenaResetService {
             feedback.accept("Run /siege admin savesnapshot confirm on a clean map first.");
             return;
         }
-        if (isBusy()) {
-            feedback.accept("An arena reset is already scheduled or running.");
+        if (!maintenance.beginResetCountdown()) {
+            feedback.accept("Arena maintenance is already "
+                    + maintenance.state().name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ') + ".");
             return;
         }
 
@@ -117,10 +122,16 @@ public final class ArenaResetService {
 
     private void beginRestore(Consumer<String> feedback) {
         cancelCountdown();
+        if (!maintenance.beginRestore()) {
+            feedback.accept("Arena reset state changed unexpectedly. Reset aborted.");
+            maintenance.finishReset();
+            return;
+        }
 
         Optional<ArenaRegion> snapshotRegion = store.loadRegion();
         if (snapshotRegion.isEmpty()) {
             feedback.accept("The arena snapshot manifest could not be read. Reset aborted.");
+            maintenance.finishReset();
             return;
         }
 
@@ -128,6 +139,7 @@ public final class ArenaResetService {
         World world = plugin.getServer().getWorld(region.worldName());
         if (world == null) {
             feedback.accept("The arena world '" + region.worldName() + "' is not loaded. Reset aborted.");
+            maintenance.finishReset();
             return;
         }
 
@@ -167,6 +179,7 @@ public final class ArenaResetService {
         stopRestoreTask();
         placedBlocks.clearAll();
         captureService.resumeAfterReset();
+        maintenance.finishReset();
 
         plugin.getLogger().info("Arena restore complete: " + tileCount + " tiles.");
         plugin.getServer().broadcast(Component.text("The battlefield has been reset.", NamedTextColor.GREEN));
@@ -178,6 +191,7 @@ public final class ArenaResetService {
         plugin.getLogger().log(Level.SEVERE, "Arena restore failed on tile " + tile.fileName() + ".", exception);
         // Sessions stay usable even after a partial restore.
         captureService.resumeAfterReset();
+        maintenance.finishReset();
         feedback.accept("Arena reset failed partway through. Check the server log.");
         plugin.getServer().broadcast(Component.text(
                 "The battlefield reset did not finish correctly.",

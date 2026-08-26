@@ -76,11 +76,12 @@ public final class CurrencyService {
     }
 
     public void awardBannerCapture(Player player) {
-        award(player, settings.bannerCaptureReward(), "capturing the banner");
+        // Stage 4.4j moves this rate to the scoring-tick recipient path.
+        award(player, settings.perCaptureTick(), "capturing the banner");
     }
 
     public void awardKill(Player killer) {
-        award(killer, settings.killReward(), "a kill");
+        award(killer, settings.perKill(), "a kill");
     }
 
     private void award(Player player, long amount, String reason) {

@@ -10,27 +10,27 @@ import java.util.List;
  * Minecart limits. Deliberately has no cart cap: only placement rate and
  * abandoned-cart cleanup are controlled.
  */
-public record MinecartSettings(Duration tntPlacementCooldown, Duration sweepInterval) {
+public record MinecartSettings(Duration tntPlacementCooldown, Duration stationaryCleanupThreshold) {
 
-    static final String COOLDOWN_PATH = "minecart.tnt-placement-cooldown-seconds";
-    static final String SWEEP_PATH = "minecart.sweep-interval-seconds";
+    static final String COOLDOWN_PATH = "cleanup.minecart-placement-cooldown-seconds";
+    static final String STATIONARY_CLEANUP_PATH = "cleanup.minecart-stationary-cleanup-seconds";
 
-    private static final long DEFAULT_COOLDOWN_SECONDS = 5L;
-    private static final long DEFAULT_SWEEP_SECONDS = 30L;
+    private static final long DEFAULT_COOLDOWN_SECONDS = 30L;
+    private static final long DEFAULT_STATIONARY_CLEANUP_SECONDS = 300L;
 
     public MinecartSettings {
         if (tntPlacementCooldown.isNegative()) {
             throw new IllegalArgumentException("TNT minecart cooldown cannot be negative");
         }
-        if (sweepInterval.isZero() || sweepInterval.isNegative()) {
-            throw new IllegalArgumentException("Minecart sweep interval must be positive");
+        if (stationaryCleanupThreshold.isZero() || stationaryCleanupThreshold.isNegative()) {
+            throw new IllegalArgumentException("Minecart stationary cleanup threshold must be positive");
         }
     }
 
     public static MinecartSettings fromConfig(FileConfiguration config) {
         return new MinecartSettings(
                 Duration.ofSeconds(config.getLong(COOLDOWN_PATH, DEFAULT_COOLDOWN_SECONDS)),
-                Duration.ofSeconds(config.getLong(SWEEP_PATH, DEFAULT_SWEEP_SECONDS))
+                Duration.ofSeconds(config.getLong(STATIONARY_CLEANUP_PATH, DEFAULT_STATIONARY_CLEANUP_SECONDS))
         );
     }
 
@@ -39,8 +39,8 @@ public record MinecartSettings(Duration tntPlacementCooldown, Duration sweepInte
         if (config.isSet(COOLDOWN_PATH) && config.getLong(COOLDOWN_PATH, -1L) < 0L) {
             problems.add(COOLDOWN_PATH + " must be zero or a positive number of seconds");
         }
-        if (config.isSet(SWEEP_PATH) && config.getLong(SWEEP_PATH, 0L) <= 0L) {
-            problems.add(SWEEP_PATH + " must be a positive number of seconds");
+        if (config.isSet(STATIONARY_CLEANUP_PATH) && config.getLong(STATIONARY_CLEANUP_PATH, 0L) <= 0L) {
+            problems.add(STATIONARY_CLEANUP_PATH + " must be a positive number of seconds");
         }
         return problems;
     }
