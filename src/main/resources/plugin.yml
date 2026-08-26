@@ -5,7 +5,7 @@ main: woo.siegePlugin.SiegePlugin
 paper-plugin-loader: woo.siegePlugin.SiegePluginLoader
 api-version: '1.21.11'
 load: POSTWORLD
-depend: [Towny, CombatLog]
+depend: [Towny, CombatLog, Multiverse-Core]
 
 commands:
   siege:

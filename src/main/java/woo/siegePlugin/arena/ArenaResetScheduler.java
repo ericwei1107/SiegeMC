@@ -70,14 +70,28 @@ public final class ArenaResetScheduler {
             throw new IllegalArgumentException("interval must be positive");
         }
         try {
-            return Math.multiplyExact(duration.toSeconds(), TICKS_PER_SECOND);
+            long wholeSecondTicks = Math.multiplyExact(duration.getSeconds(), TICKS_PER_SECOND);
+            long partialSecondTicks = (duration.getNano() + 49_999_999L) / 50_000_000L;
+            return Math.addExact(wholeSecondTicks, partialSecondTicks);
         } catch (ArithmeticException exception) {
             throw new IllegalArgumentException("interval is too large to schedule", exception);
         }
     }
 
-    private static String format(Duration duration) {
-        long hours = duration.toHours();
-        return hours + " hour" + (hours == 1L ? "" : "s");
+    static String format(Duration duration) {
+        long seconds = duration.getSeconds();
+        if (duration.getNano() == 0 && seconds >= 3_600L && seconds % 3_600L == 0L) {
+            long hours = seconds / 3_600L;
+            return hours + " hour" + (hours == 1L ? "" : "s");
+        }
+        if (duration.getNano() == 0 && seconds >= 60L && seconds % 60L == 0L) {
+            long minutes = seconds / 60L;
+            return minutes + " minute" + (minutes == 1L ? "" : "s");
+        }
+        if (duration.getNano() == 0 && seconds >= 1L) {
+            return seconds + " second" + (seconds == 1L ? "" : "s");
+        }
+        long milliseconds = duration.toMillis();
+        return milliseconds + " millisecond" + (milliseconds == 1L ? "" : "s");
     }
 }

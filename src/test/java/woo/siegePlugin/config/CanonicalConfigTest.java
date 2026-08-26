@@ -94,7 +94,10 @@ class CanonicalConfigTest {
     void combatLogIsAHardDependency() {
         YamlConfiguration pluginDescription = load("src/main/resources/plugin.yml");
 
-        assertEquals(List.of("Towny", "CombatLog"), pluginDescription.getStringList("depend"));
+        assertEquals(
+                List.of("Towny", "CombatLog", "Multiverse-Core"),
+                pluginDescription.getStringList("depend")
+        );
         assertTrue(pluginDescription.getStringList("softdepend").isEmpty());
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.admin.resetscores"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.spectate"));
