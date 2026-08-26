@@ -28,6 +28,7 @@ public final class KitService implements KitLoadoutProvider {
     private final KitProfile profile;
     private final KitValidator validator;
     private final Map<UUID, KitLoadout> cachedLoadouts = new HashMap<>();
+    private final KitLoadReadiness loadReadiness = new KitLoadReadiness();
     private final AtomicBoolean active = new AtomicBoolean(true);
 
     public KitService(JavaPlugin plugin, KitLoadoutDao loadoutDao, KitProfile profile) {
@@ -58,9 +59,16 @@ public final class KitService implements KitLoadoutProvider {
 
     public void load(Player player) {
         UUID playerId = player.getUniqueId();
+        long loadToken = loadReadiness.begin(playerId);
         loadoutDao.load(playerId).whenComplete((stored, failure) -> onServerThread(() -> {
             if (failure != null) {
+                if (!loadReadiness.fail(playerId, loadToken)) {
+                    return;
+                }
                 logFailure("load the kit for " + player.getName(), failure);
+                return;
+            }
+            if (!loadReadiness.complete(playerId, loadToken)) {
                 return;
             }
             cachedLoadouts.put(playerId, stored.map(this::decodeOrDefault)
@@ -69,7 +77,14 @@ public final class KitService implements KitLoadoutProvider {
     }
 
     public void forget(Player player) {
-        cachedLoadouts.remove(player.getUniqueId());
+        UUID playerId = player.getUniqueId();
+        cachedLoadouts.remove(playerId);
+        loadReadiness.forget(playerId);
+    }
+
+    /** Whether an editor can safely use the player's persisted kit draft. */
+    public boolean isLoadReady(Player player) {
+        return loadReadiness.isReady(player.getUniqueId());
     }
 
     /** The loadout the editor should open with. */

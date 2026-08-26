@@ -8,6 +8,7 @@ import woo.siegePlugin.cycle.ActivityCycleSettings;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopBundle;
 import woo.siegePlugin.minecart.MinecartSettings;
+import woo.siegePlugin.kit.KitProfile;
 import woo.siegePlugin.score.ScoringSettings;
 
 import java.io.File;
@@ -56,6 +57,13 @@ class CanonicalConfigTest {
         for (ShopBundle bundle : ShopBundle.values()) {
             assertEquals(0L, currency.priceOf(bundle), bundle + " price is not an untuned placeholder");
         }
+
+        KitProfile kit = KitProfile.fromConfig(config);
+        assertEquals(32, kit.allowanceFor("BAKED_POTATO").orElseThrow().maxTotal());
+        assertEquals(4, kit.allowanceForKey("SPLASH_POTION:STRONG_HEALING").orElseThrow().maxTotal());
+        assertEquals(2, kit.allowanceForKey("POTION:STRONG_SWIFTNESS").orElseThrow().maxTotal());
+        assertEquals(2, kit.allowanceForKey("POTION:STRONG_STRENGTH").orElseThrow().maxTotal());
+        assertTrue(KitProfile.findConfigurationProblems(config).isEmpty());
 
         assertTrue(CanonicalConfig.findConfigurationProblems(config).isEmpty());
     }

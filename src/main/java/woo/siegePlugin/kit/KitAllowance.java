@@ -38,6 +38,15 @@ public record KitAllowance(
         return new KitItemSpec(material, amount, enchantments, potionType);
     }
 
+    /**
+     * A stable profile key. Potion material alone is not enough because a
+     * drinkable Speed II potion and a drinkable Strength II potion are two
+     * independently capped base-kit entries.
+     */
+    public String key() {
+        return potionType == null ? material : material + ":" + potionType;
+    }
+
     public KitAllowance withCaps(int newMaxTotal, int newMaxPerSlot) {
         return new KitAllowance(material, placement, newMaxTotal, newMaxPerSlot, enchantments, potionType);
     }

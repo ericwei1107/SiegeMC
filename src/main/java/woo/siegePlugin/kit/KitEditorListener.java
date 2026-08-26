@@ -6,15 +6,13 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 /**
  * Drives the kit editor.
@@ -26,16 +24,20 @@ import java.util.UUID;
 public final class KitEditorListener implements Listener {
 
     private final KitService kitService;
-    private final Map<UUID, Session> sessions = new HashMap<>();
+    private final KitEditSessionStore sessions = new KitEditSessionStore();
 
     public KitEditorListener(KitService kitService) {
         this.kitService = kitService;
     }
 
-    public void open(Player player) {
-        Session session = new Session(kitService.currentLoadout(player));
-        sessions.put(player.getUniqueId(), session);
-        player.openInventory(KitEditorMenu.create(session.loadout, kitService.profile(), session.selected));
+    public boolean open(Player player) {
+        if (!kitService.isLoadReady(player)) {
+            player.sendMessage("Your saved kit is still loading. Please try again in a moment.");
+            return false;
+        }
+        KitEditSessionStore.Session session = sessions.start(player.getUniqueId(), kitService.currentLoadout(player));
+        player.openInventory(KitEditorMenu.create(session.loadout(), kitService.profile(), session.selected()));
+        return true;
     }
 
     @EventHandler
@@ -51,7 +53,7 @@ public final class KitEditorListener implements Listener {
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
-        Session session = sessions.get(player.getUniqueId());
+        KitEditSessionStore.Session session = sessions.get(player.getUniqueId());
         if (session == null || !event.getInventory().equals(event.getClickedInventory())) {
             return;
         }
@@ -75,19 +77,7 @@ public final class KitEditorListener implements Listener {
             return;
         }
 
-        Session session = sessions.remove(player.getUniqueId());
-        if (session == null) {
-            return;
-        }
-
-        List<String> problems = kitService.save(player, session.loadout);
-        if (problems.isEmpty()) {
-            player.sendMessage("Kit saved.");
-            return;
-        }
-
-        player.sendMessage("Your kit was not saved:");
-        problems.forEach(problem -> player.sendMessage(" - " + problem));
+        finishEditing(player, KitEditSessionStore.EndCause.INVENTORY_CLOSE, true);
     }
 
     @EventHandler
@@ -97,15 +87,19 @@ public final class KitEditorListener implements Listener {
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        // Nothing to hand back: the editor never held real items.
-        sessions.remove(event.getPlayer().getUniqueId());
+        finishEditing(event.getPlayer(), KitEditSessionStore.EndCause.DISCONNECT, false);
         kitService.forget(event.getPlayer());
     }
 
-    private void handleClick(Player player, Session session, Inventory inventory, int guiSlot) {
+    @EventHandler
+    public void onDeath(PlayerDeathEvent event) {
+        finishEditing(event.getPlayer(), KitEditSessionStore.EndCause.DEATH, false);
+    }
+
+    private void handleClick(Player player, KitEditSessionStore.Session session, Inventory inventory, int guiSlot) {
         if (guiSlot == KitEditorMenu.RESET_SLOT) {
-            session.loadout = KitLoadout.defaultFor(kitService.profile());
-            session.selected = null;
+            session.setLoadout(KitLoadout.defaultFor(kitService.profile()));
+            session.setSelected(null);
             player.sendMessage("Kit reset to the default loadout.");
             redraw(session, inventory);
             return;
@@ -122,46 +116,57 @@ public final class KitEditorListener implements Listener {
             return;
         }
 
-        if (session.loadout.itemAt(inventorySlot) != null) {
-            session.loadout.setItemAt(inventorySlot, null);
+        if (session.loadout().itemAt(inventorySlot) != null) {
+            session.loadout().setItemAt(inventorySlot, null);
             redraw(session, inventory);
             return;
         }
-        if (session.selected == null) {
+        if (session.selected() == null) {
             player.sendMessage("Pick an item from the bottom row first.");
             return;
         }
 
-        place(player, session, inventory, inventorySlot, session.selected);
+        place(player, session, inventory, inventorySlot, session.selected());
     }
 
-    private void handlePaletteClick(Player player, Session session, Inventory inventory, String palette) {
+    private void handlePaletteClick(
+            Player player,
+            KitEditSessionStore.Session session,
+            Inventory inventory,
+            String palette
+    ) {
         if (KitEditorMenu.ARMOUR_SET.equals(palette)) {
             equipArmourSet(session);
-            session.selected = null;
+            session.setSelected(null);
             player.sendMessage("Armour set equipped.");
             redraw(session, inventory);
             return;
         }
 
-        session.selected = palette.equals(session.selected) ? null : palette;
+        session.setSelected(palette.equals(session.selected()) ? null : palette);
         redraw(session, inventory);
     }
 
-    private void place(Player player, Session session, Inventory inventory, int inventorySlot, String material) {
-        KitAllowance allowance = kitService.profile().allowanceFor(material).orElse(null);
+    private void place(
+            Player player,
+            KitEditSessionStore.Session session,
+            Inventory inventory,
+            int inventorySlot,
+            String allowanceKey
+    ) {
+        KitAllowance allowance = kitService.profile().allowanceForKey(allowanceKey).orElse(null);
         if (allowance == null) {
             return;
         }
 
         if (!allowance.placement().accepts(inventorySlot)) {
-            player.sendMessage(material + " does not belong in that slot.");
+            player.sendMessage(allowance.material() + " does not belong in that slot.");
             return;
         }
 
-        int remaining = kitService.validator().remainingAllowance(session.loadout.describe(), material);
+        int remaining = kitService.validator().remainingAllowance(session.loadout().describe(), allowanceKey);
         if (remaining <= 0) {
-            player.sendMessage("You already have the maximum number of " + material + ".");
+            player.sendMessage("You already have the maximum number of " + allowance.material() + ".");
             return;
         }
 
@@ -171,31 +176,47 @@ public final class KitEditorListener implements Listener {
             return;
         }
 
-        session.loadout.setItemAt(inventorySlot, stack);
+        session.loadout().setItemAt(inventorySlot, stack);
         redraw(session, inventory);
     }
 
-    private void equipArmourSet(Session session) {
+    private void equipArmourSet(KitEditSessionStore.Session session) {
         for (KitAllowance allowance : kitService.profile().palette()) {
             KitSlotKind placement = allowance.placement();
             if (placement == KitSlotKind.STORAGE || placement == KitSlotKind.OFFHAND) {
                 continue;
             }
-            session.loadout.setItemAt(placement.fixedSlot(), KitItems.create(allowance.template(1)));
+            session.loadout().setItemAt(placement.fixedSlot(), KitItems.create(allowance.template(1)));
         }
     }
 
-    private void redraw(Session session, Inventory inventory) {
-        KitEditorMenu.render(inventory, session.loadout, kitService.profile(), session.selected);
+    private void redraw(KitEditSessionStore.Session session, Inventory inventory) {
+        KitEditorMenu.render(inventory, session.loadout(), kitService.profile(), session.selected());
     }
 
-    private static final class Session {
+    /**
+     * All terminal editor paths use this same virtual-session handoff. The
+     * editor never owns physical items, so saving the draft exactly once is
+     * lossless for close, death, and disconnect alike.
+     */
+    private void finishEditing(Player player, KitEditSessionStore.EndCause cause, boolean notifyPlayer) {
+        KitEditSessionStore.Session session = sessions.finish(player.getUniqueId(), cause).orElse(null);
+        if (session == null) {
+            return;
+        }
 
-        private KitLoadout loadout;
-        private String selected;
+        List<String> problems = kitService.save(player, session.loadout());
+        if (problems.isEmpty()) {
+            if (notifyPlayer) {
+                player.sendMessage("Kit saved.");
+            }
+            return;
+        }
 
-        private Session(KitLoadout loadout) {
-            this.loadout = loadout;
+        if (notifyPlayer) {
+            player.sendMessage("Your kit was not saved:");
+            problems.forEach(problem -> player.sendMessage(" - " + problem));
         }
     }
+
 }

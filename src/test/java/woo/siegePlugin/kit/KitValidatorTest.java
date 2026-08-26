@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,8 +13,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KitValidatorTest {
 
-    private static final Map<String, Integer> HELMET_ENCHANTS = Map.of("PROTECTION", 4, "UNBREAKING", 3);
-    private static final Map<String, Integer> SWORD_ENCHANTS = Map.of("SHARPNESS", 5, "UNBREAKING", 3);
+    private static final Map<String, Integer> HELMET_ENCHANTS = Map.of("PROTECTION", 4, "UNBREAKING", 3, "MENDING", 1);
+    private static final Map<String, Integer> SWORD_ENCHANTS = Map.of("SHARPNESS", 5, "UNBREAKING", 3, "MENDING", 1);
 
     private final KitProfile profile = KitProfile.approved();
     private final KitValidator validator = new KitValidator(profile);
@@ -29,6 +30,44 @@ class KitValidatorTest {
     @Test
     void anEmptyLoadoutIsLegal() {
         assertTrue(validator.isValid(Map.of()));
+    }
+
+    @Test
+    void approvedProfileIsTheExactMendingNetheriteKit() {
+        assertEquals(
+                Set.of(
+                        "NETHERITE_HELMET", "NETHERITE_CHESTPLATE", "NETHERITE_LEGGINGS", "NETHERITE_BOOTS",
+                        "NETHERITE_SWORD", "DIAMOND_AXE", "SHIELD", "EXPERIENCE_BOTTLE", "BAKED_POTATO",
+                        "SPLASH_POTION:STRONG_HEALING", "POTION:STRONG_SWIFTNESS", "POTION:STRONG_STRENGTH"
+                ),
+                profile.allowances().keySet()
+        );
+        for (String armour : List.of(
+                "NETHERITE_HELMET", "NETHERITE_CHESTPLATE", "NETHERITE_LEGGINGS", "NETHERITE_BOOTS"
+        )) {
+            assertEquals(1, profile.allowanceFor(armour).orElseThrow().enchantments().get("MENDING"));
+        }
+        assertEquals(1, profile.allowanceFor("NETHERITE_SWORD").orElseThrow().enchantments().get("MENDING"));
+        assertEquals(32, profile.allowanceFor("BAKED_POTATO").orElseThrow().maxTotal());
+        assertTrue(profile.allowanceFor("COOKED_BEEF").isEmpty());
+
+        assertAllowance("SPLASH_POTION:STRONG_HEALING", KitSlotKind.STORAGE, 4, 1, "STRONG_HEALING");
+        assertAllowance("POTION:STRONG_SWIFTNESS", KitSlotKind.STORAGE, 2, 1, "STRONG_SWIFTNESS");
+        assertAllowance("POTION:STRONG_STRENGTH", KitSlotKind.STORAGE, 2, 1, "STRONG_STRENGTH");
+    }
+
+    private void assertAllowance(
+            String key,
+            KitSlotKind expectedSlot,
+            int expectedTotal,
+            int expectedPerSlot,
+            String expectedPotionType
+    ) {
+        KitAllowance allowance = profile.allowanceForKey(key).orElseThrow();
+        assertEquals(expectedSlot, allowance.placement());
+        assertEquals(expectedTotal, allowance.maxTotal());
+        assertEquals(expectedPerSlot, allowance.maxPerSlot());
+        assertEquals(expectedPotionType, allowance.potionType());
     }
 
     @Test
@@ -99,7 +138,7 @@ class KitValidatorTest {
 
         assertFalse(validator.isValid(loadout(
                 0, KitItemSpec.enchanted("NETHERITE_SWORD", 1,
-                        Map.of("SHARPNESS", 5, "UNBREAKING", 3, "FIRE_ASPECT", 2))
+                        Map.of("SHARPNESS", 5, "UNBREAKING", 3, "MENDING", 1, "FIRE_ASPECT", 2))
         )), "extra enchantment accepted");
 
         assertFalse(validator.isValid(loadout(
@@ -109,11 +148,15 @@ class KitValidatorTest {
 
     @Test
     void potionFormAndTypeMustMatch() {
-        assertTrue(validator.isValid(loadout(0, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"))));
+        assertTrue(validator.isValid(loadout(
+                0, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                1, KitItemSpec.potion("POTION", 1, "STRONG_SWIFTNESS"),
+                2, KitItemSpec.potion("POTION", 1, "STRONG_STRENGTH")
+        )));
 
-        assertFalse(validator.isValid(loadout(0, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"))));
+        assertFalse(validator.isValid(loadout(0, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"))));
         assertFalse(validator.isValid(loadout(0, KitItemSpec.of("SPLASH_POTION", 1))));
-        assertFalse(validator.isValid(loadout(0, KitItemSpec.potion("LINGERING_POTION", 1, "HEALING"))));
+        assertFalse(validator.isValid(loadout(0, KitItemSpec.potion("LINGERING_POTION", 1, "STRONG_HEALING"))));
     }
 
     @Test
@@ -135,19 +178,19 @@ class KitValidatorTest {
     @Test
     void spreadingPotionsAcrossSlotsIsAllowedUpToTheTotal() {
         assertTrue(validator.isValid(loadout(
-                0, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                1, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                2, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                3, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING")
+                0, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                1, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                2, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                3, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING")
         )));
 
         // A fifth breaks the total of 4.
         assertFalse(validator.isValid(loadout(
-                0, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                1, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                2, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                3, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING"),
-                4, KitItemSpec.potion("SPLASH_POTION", 1, "HEALING")
+                0, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                1, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                2, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                3, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING"),
+                4, KitItemSpec.potion("SPLASH_POTION", 1, "STRONG_HEALING")
         )));
     }
 
@@ -171,7 +214,7 @@ class KitValidatorTest {
         Map<Integer, KitItemSpec> held = loadout(0, KitItemSpec.of("EXPERIENCE_BOTTLE", 10));
 
         assertEquals(6, validator.remainingAllowance(held, "EXPERIENCE_BOTTLE"));
-        assertEquals(32, validator.remainingAllowance(held, "COOKED_BEEF"));
+        assertEquals(32, validator.remainingAllowance(held, "BAKED_POTATO"));
         assertEquals(0, validator.remainingAllowance(held, "BOW"));
     }
 

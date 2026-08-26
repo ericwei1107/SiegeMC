@@ -35,7 +35,7 @@ public final class KitValidator {
                 continue;
             }
 
-            KitAllowance allowance = profile.allowanceFor(item.material()).orElse(null);
+            KitAllowance allowance = profile.allowanceFor(item).orElse(null);
             if (allowance == null) {
                 problems.add(item.material() + " is not part of the base kit");
                 continue;
@@ -57,11 +57,13 @@ public final class KitValidator {
                 problems.add(item.material() + " is not the approved potion form");
             }
 
-            totals.merge(item.material(), Math.max(0, item.amount()), Integer::sum);
+            if (allowance != null) {
+                totals.merge(allowance.key(), Math.max(0, item.amount()), Integer::sum);
+            }
         }
 
         for (Map.Entry<String, Integer> total : totals.entrySet()) {
-            profile.allowanceFor(total.getKey()).ifPresent(allowance -> {
+            profile.allowanceForKey(total.getKey()).ifPresent(allowance -> {
                 if (total.getValue() > allowance.maxTotal()) {
                     problems.add(total.getKey() + " exceeds the total limit of " + allowance.maxTotal());
                 }
@@ -79,14 +81,16 @@ public final class KitValidator {
      * How many more units of a material a loadout may still take, given what it
      * already holds.
      */
-    public int remainingAllowance(Map<Integer, KitItemSpec> loadout, String material) {
-        KitAllowance allowance = profile.allowanceFor(material).orElse(null);
+    public int remainingAllowance(Map<Integer, KitItemSpec> loadout, String allowanceKey) {
+        KitAllowance allowance = profile.allowanceForKey(allowanceKey).orElse(null);
         if (allowance == null) {
             return 0;
         }
 
         int used = loadout.values().stream()
-                .filter(item -> item.material().equals(material))
+                .filter(item -> profile.allowanceFor(item)
+                        .map(candidate -> candidate.key().equals(allowanceKey))
+                        .orElse(false))
                 .mapToInt(KitItemSpec::amount)
                 .sum();
         return Math.max(0, allowance.maxTotal() - used);

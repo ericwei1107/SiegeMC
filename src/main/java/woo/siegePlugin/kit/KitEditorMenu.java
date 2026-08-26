@@ -16,7 +16,7 @@ import java.util.Map;
 /**
  * The kit editor's layout.
  *
- * <p>GUI slots 0-40 mirror the player's inventory, slots 45-52 are the palette,
+ * <p>GUI slots 0-40 mirror the player's inventory, slots 44-52 are the palette,
  * and slot 53 resets to the default kit. Nothing here is ever a real item the
  * player can take — every click is cancelled and the contents are rewritten
  * programmatically.</p>
@@ -29,14 +29,15 @@ public final class KitEditorMenu {
 
     /** Palette GUI slot to what it places. */
     private static final Map<Integer, String> PALETTE = Map.of(
-            45, ARMOUR_SET,
-            46, "NETHERITE_SWORD",
-            47, "DIAMOND_AXE",
-            48, "SHIELD",
-            49, "EXPERIENCE_BOTTLE",
-            50, "COOKED_BEEF",
-            51, "SPLASH_POTION",
-            52, "POTION"
+            44, ARMOUR_SET,
+            45, "NETHERITE_SWORD",
+            46, "DIAMOND_AXE",
+            47, "SHIELD",
+            48, "EXPERIENCE_BOTTLE",
+            49, "BAKED_POTATO",
+            50, "SPLASH_POTION:STRONG_HEALING",
+            51, "POTION:STRONG_SWIFTNESS",
+            52, "POTION:STRONG_STRENGTH"
     );
 
     private static final Map<Integer, Integer> GUI_TO_INVENTORY = Map.of(
@@ -63,7 +64,7 @@ public final class KitEditorMenu {
             int inventorySlot = inventorySlotFor(guiSlot);
             inventory.setItem(guiSlot, inventorySlot < 0 ? null : loadout.itemAt(inventorySlot));
         }
-        for (int guiSlot = 41; guiSlot <= 44; guiSlot++) {
+        for (int guiSlot = 41; guiSlot <= 43; guiSlot++) {
             inventory.setItem(guiSlot, filler());
         }
 
@@ -100,7 +101,7 @@ public final class KitEditorMenu {
             );
         }
 
-        KitAllowance allowance = profile.allowanceFor(selection).orElse(null);
+        KitAllowance allowance = profile.allowanceForKey(selection).orElse(null);
         if (allowance == null) {
             return null;
         }
@@ -113,7 +114,7 @@ public final class KitEditorMenu {
         return labelled(
                 icon,
                 Component.text(
-                        prettify(selection) + (isSelected ? " (selected)" : ""),
+                        displayName(allowance) + (isSelected ? " (selected)" : ""),
                         isSelected ? NamedTextColor.GREEN : NamedTextColor.YELLOW
                 ),
                 List.of(
@@ -146,6 +147,14 @@ public final class KitEditorMenu {
             pretty.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1)).append(' ');
         }
         return pretty.toString().trim();
+    }
+
+    private static String displayName(KitAllowance allowance) {
+        if (allowance.potionType() == null) {
+            return prettify(allowance.material());
+        }
+        String potion = allowance.potionType().replace("STRONG_", "");
+        return prettify(potion) + " II " + prettify(allowance.material());
     }
 
     /** Marks an inventory as the kit editor without relying on its title. */

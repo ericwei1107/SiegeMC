@@ -81,9 +81,12 @@ kit:
   # Bundle contents and enchantments are fixed; only the caps are editable.
   caps:
     EXPERIENCE_BOTTLE: 16
-    COOKED_BEEF: 32
-    SPLASH_POTION: 4
-    POTION: 2
+    BAKED_POTATO: 32
+    SPLASH_POTION:
+      STRONG_HEALING: 4
+    POTION:
+      STRONG_SWIFTNESS: 2
+      STRONG_STRENGTH: 2
 
 # Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
 # Resets stay disabled until a snapshot exists.
