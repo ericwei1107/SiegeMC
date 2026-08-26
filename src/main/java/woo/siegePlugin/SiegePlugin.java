@@ -5,6 +5,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.arena.ArenaResetService;
+import woo.siegePlugin.arena.ArenaResetScheduler;
 import woo.siegePlugin.arena.ArenaMaintenanceCoordinator;
 import woo.siegePlugin.arena.ArenaCleanupSettings;
 import woo.siegePlugin.arena.ArenaRegionSettings;
@@ -78,6 +79,7 @@ public final class SiegePlugin extends JavaPlugin {
     private ActivityCycleService activityCycleService;
     private ArenaSnapshotService arenaSnapshotService;
     private ArenaResetService arenaResetService;
+    private ArenaResetScheduler arenaResetScheduler;
     private MinecartSweeper minecartSweeper;
     private CurrencyService currencyService;
     private KitService kitService;
@@ -170,6 +172,7 @@ public final class SiegePlugin extends JavaPlugin {
         scoringService.start();
         activityCycleService.start();
         minecartSweeper.start();
+        arenaResetScheduler.start();
 
         if (!arenaResetService.hasSnapshot()) {
             getLogger().warning("=====================================================================");
@@ -195,6 +198,9 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (arenaSnapshotService != null) {
             arenaSnapshotService.stop();
+        }
+        if (arenaResetScheduler != null) {
+            arenaResetScheduler.stop();
         }
         if (arenaResetService != null) {
             arenaResetService.stop();
@@ -360,6 +366,11 @@ public final class SiegePlugin extends JavaPlugin {
                 // Stage 4.4i.1 supplies the real placed-block tracker.
                 PlacedBlockTracker.notTrackingYet(),
                 maintenance
+        );
+        this.arenaResetScheduler = new ArenaResetScheduler(
+                this,
+                arenaResetService,
+                ArenaCleanupSettings.fromConfig(getConfig()).mapResetInterval()
         );
 
         this.minecartSweeper = new MinecartSweeper(
