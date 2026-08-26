@@ -43,6 +43,7 @@ import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
 import woo.siegePlugin.persistence.PlayerBalanceDao;
+import woo.siegePlugin.persistence.PurchaseOutboxDao;
 import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.MatchDefinition;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
@@ -164,6 +165,7 @@ public final class SiegePlugin extends JavaPlugin {
         this.currencyService = new CurrencyService(
                 this,
                 new PlayerBalanceDao(database),
+                new PurchaseOutboxDao(database),
                 CurrencySettings.fromConfig(getConfig())
         );
         scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTick);
@@ -171,7 +173,7 @@ public final class SiegePlugin extends JavaPlugin {
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
-        currencyService.loadOnlineBalances();
+        currencyService.start();
         kitService.loadOnlinePlayers();
         captureService.start();
         scoringService.start();

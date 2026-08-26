@@ -4,6 +4,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.persistence.PlayerBalanceDao;
+import woo.siegePlugin.persistence.PurchaseOutboxDao;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,21 +27,53 @@ public final class CurrencyService {
 
     private final JavaPlugin plugin;
     private final PlayerBalanceDao balanceDao;
+    private final PurchaseOutboxDao purchaseOutbox;
     private final CurrencySettings settings;
     private final Map<UUID, Long> cachedBalances = new HashMap<>();
     private final Set<UUID> purchasesInFlight = new HashSet<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
+    private final AtomicBoolean acceptingPurchases = new AtomicBoolean(false);
 
-    public CurrencyService(JavaPlugin plugin, PlayerBalanceDao balanceDao, CurrencySettings settings) {
+    public CurrencyService(
+            JavaPlugin plugin,
+            PlayerBalanceDao balanceDao,
+            PurchaseOutboxDao purchaseOutbox,
+            CurrencySettings settings
+    ) {
         this.plugin = plugin;
         this.balanceDao = balanceDao;
+        this.purchaseOutbox = purchaseOutbox;
         this.settings = settings;
     }
 
     public void shutdown() {
+        acceptingPurchases.set(false);
+        try {
+            // All previously accepted database operations are queued before
+            // this reconciliation on SiegeDatabase's single worker. Pending
+            // debits therefore become durable refunds before close() flushes.
+            purchaseOutbox.refundAllPending().join();
+        } catch (RuntimeException exception) {
+            logFailure("reconcile pending purchases during shutdown", exception);
+        }
         active.set(false);
         cachedBalances.clear();
         purchasesInFlight.clear();
+    }
+
+    /** Reconciles a crash-leftover reservation before opening the shop. */
+    public void start() {
+        purchaseOutbox.refundAllPending().whenComplete((refunded, failure) -> onServerThread(() -> {
+            if (failure != null) {
+                logFailure("reconcile pending purchases on enable", failure);
+                return;
+            }
+            acceptingPurchases.set(true);
+            if (refunded > 0) {
+                plugin.getLogger().warning("Refunded " + refunded + " unfinished shop purchase(s) from a prior shutdown.");
+            }
+            loadOnlineBalances();
+        }));
     }
 
     public CurrencySettings settings() {
@@ -108,6 +141,10 @@ public final class CurrencyService {
      * flight; if it no longer fits, the price is refunded.
      */
     public void purchase(Player player, ShopBundle bundle, Consumer<PurchaseOutcome> outcome) {
+        if (!acceptingPurchases.get()) {
+            outcome.accept(PurchaseOutcome.FAILED);
+            return;
+        }
         UUID playerId = player.getUniqueId();
         if (!purchasesInFlight.add(playerId)) {
             outcome.accept(PurchaseOutcome.ALREADY_PURCHASING);
@@ -122,7 +159,7 @@ public final class CurrencyService {
         }
 
         long price = settings.priceOf(bundle);
-        balanceDao.tryWithdraw(playerId, price).whenComplete((remaining, failure) -> onServerThread(() -> {
+        purchaseOutbox.reserve(playerId, bundle.name(), price).whenComplete((reservation, failure) -> onServerThread(() -> {
             purchasesInFlight.remove(playerId);
 
             if (failure != null) {
@@ -130,14 +167,15 @@ public final class CurrencyService {
                 outcome.accept(PurchaseOutcome.FAILED);
                 return;
             }
-            if (remaining.isEmpty()) {
+            if (reservation.isEmpty()) {
                 outcome.accept(PurchaseOutcome.INSUFFICIENT_FUNDS);
                 return;
             }
 
-            cachedBalances.put(playerId, remaining.getAsLong());
-            if (!player.isOnline() || !InventorySpace.hasRoomFor(player.getInventory(), item)) {
-                refund(player, price);
+            PurchaseOutboxDao.Reservation accepted = reservation.orElseThrow();
+            cachedBalances.put(playerId, accepted.remainingBalance());
+            if (!acceptingPurchases.get() || !player.isOnline() || !InventorySpace.hasRoomFor(player.getInventory(), item)) {
+                refund(accepted);
                 outcome.accept(PurchaseOutcome.NO_INVENTORY_SPACE);
                 return;
             }
@@ -145,18 +183,26 @@ public final class CurrencyService {
             // Space was just verified, but never let a paid-for item vanish.
             player.getInventory().addItem(item).values()
                     .forEach(leftover -> player.getWorld().dropItemNaturally(player.getLocation(), leftover));
+            purchaseOutbox.markFulfilled(accepted.purchaseId()).whenComplete((fulfilled, markFailure) -> {
+                if (markFailure != null) {
+                    logFailure("mark delivered purchase " + accepted.purchaseId() + " fulfilled", markFailure);
+                } else if (!fulfilled) {
+                    plugin.getLogger().severe("Delivered purchase " + accepted.purchaseId()
+                            + " was already reconciled instead of being marked fulfilled.");
+                }
+            });
             outcome.accept(PurchaseOutcome.SUCCESS);
         }));
     }
 
-    private void refund(Player player, long price) {
-        balanceDao.deposit(player.getUniqueId(), price).whenComplete((balance, failure) -> onServerThread(() -> {
+    private void refund(PurchaseOutboxDao.Reservation reservation) {
+        purchaseOutbox.refund(reservation.purchaseId()).whenComplete((balance, failure) -> onServerThread(() -> {
             if (failure != null) {
                 // The player was charged and got nothing; this must be visible.
-                logFailure("refund " + price + " to " + player.getName(), failure);
+                logFailure("refund purchase " + reservation.purchaseId(), failure);
                 return;
             }
-            cachedBalances.put(player.getUniqueId(), balance);
+            balance.ifPresent(refundedBalance -> cachedBalances.put(reservation.playerId(), refundedBalance));
         }));
     }
 

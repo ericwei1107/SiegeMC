@@ -207,6 +207,22 @@ public final class SiegeDatabase implements AutoCloseable {
                             updated_at INTEGER NOT NULL
                         )
                         """);
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS purchase_outbox (
+                            purchase_id TEXT PRIMARY KEY,
+                            player_uuid TEXT NOT NULL,
+                            bundle_key TEXT NOT NULL,
+                            price INTEGER NOT NULL,
+                            status TEXT NOT NULL,
+                            created_at INTEGER NOT NULL,
+                            fulfilled_at INTEGER,
+                            refunded_at INTEGER
+                        )
+                        """);
+                statement.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_purchase_outbox_pending
+                            ON purchase_outbox(status, created_at)
+                        """);
             }
         } catch (Exception exception) {
             closeAfterInitializationFailure(exception);
