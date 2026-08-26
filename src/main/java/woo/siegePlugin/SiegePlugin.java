@@ -25,6 +25,7 @@ import woo.siegePlugin.minecart.MinecartPlacementListener;
 import woo.siegePlugin.minecart.MinecartSettings;
 import woo.siegePlugin.minecart.MinecartSweeper;
 import woo.siegePlugin.combat.CombatLogAdapter;
+import woo.siegePlugin.combat.CombatTagStatus;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
@@ -113,7 +114,6 @@ public final class SiegePlugin extends JavaPlugin {
         }
 
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
-        initializePlayerStateTransitions();
         this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
         TeamIdentityColors identityColors = TeamIdentityColors.fromConfig(getConfig());
         this.teamDisplayService = new TeamDisplayService(
@@ -121,7 +121,6 @@ public final class SiegePlugin extends JavaPlugin {
                 townyAdapter,
                 identityColors
         );
-        playerStateTransitionService.setSpectatorStateChangeHandler(teamDisplayService::handleTeamSwitch);
         this.sidebarService = new SidebarService(
                 getServer(),
                 teamDisplayService,
@@ -144,12 +143,15 @@ public final class SiegePlugin extends JavaPlugin {
                 phaseStatus
         );
         Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
+        CombatTagStatus combatTagStatus = CombatLogAdapter.fromPlugin(combatLog);
         this.teamSwitchService = new TeamSwitchService(
                 townyAdapter,
-                CombatLogAdapter.fromPlugin(combatLog),
+                combatTagStatus,
                 captureService,
                 TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
+        initializePlayerStateTransitions(combatTagStatus);
+        playerStateTransitionService.setSpectatorStateChangeHandler(teamDisplayService::handleTeamSwitch);
         this.scoringService = new ScoringService(
                 this,
                 new MatchScoreDao(database),
@@ -302,11 +304,8 @@ public final class SiegePlugin extends JavaPlugin {
         SiegeCommand commandHandler = new SiegeCommand(
                 townyAdapter,
                 teamSwitchService,
-                teamAssignmentService,
-                TeamSpawnLocations.fromConfig(getConfig(), getServer()),
                 teamDisplayService,
                 playerStateTransitionService,
-                playerStateTransitions,
                 new SiegeAdminCommand(
                         this,
                         captureService,
@@ -358,7 +357,13 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new SiegeDeathListener(townyAdapter, scoringService, currencyService, phaseStatus),
+                new SiegeDeathListener(
+                        townyAdapter,
+                        scoringService,
+                        currencyService,
+                        phaseStatus,
+                        playerStateTransitionService
+                ),
                 this
         );
         getServer().getPluginManager().registerEvents(
@@ -399,7 +404,7 @@ public final class SiegePlugin extends JavaPlugin {
         );
     }
 
-    private void initializePlayerStateTransitions() {
+    private void initializePlayerStateTransitions(CombatTagStatus combatTagStatus) {
         this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
         this.kitService = new KitService(
                 this,
@@ -411,7 +416,13 @@ public final class SiegePlugin extends JavaPlugin {
                 this,
                 new PlayerInventoryDao(database),
                 kitService,
-                SpectatorResidencyHandler.forTowny(townyAdapter)
+                SpectatorResidencyHandler.forTowny(townyAdapter),
+                LobbySettings.fromConfig(getConfig(), getServer()),
+                townyAdapter,
+                teamAssignmentService,
+                TeamSpawnLocations.fromConfig(getConfig(), getServer()),
+                combatTagStatus,
+                captureService
         );
         this.playerStateTransitions = new PlayerStateTransitions(getServer());
 

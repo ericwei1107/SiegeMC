@@ -102,6 +102,9 @@ class CanonicalConfigTest {
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.admin.resetscores"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.spectate"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.rejoin"));
+        assertTrue(pluginDescription.isConfigurationSection("permissions.siege.join"));
+        assertTrue(pluginDescription.isConfigurationSection("permissions.siege.lobby"));
+        assertTrue(pluginDescription.getString("commands.siege.usage").contains("join|lobby"));
     }
 
     private static YamlConfiguration load(String path) {

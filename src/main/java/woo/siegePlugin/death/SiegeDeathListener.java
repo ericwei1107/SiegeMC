@@ -8,6 +8,7 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.score.ScoringService;
+import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TownyAdapter;
 
@@ -25,17 +26,27 @@ public final class SiegeDeathListener implements Listener {
     private final ScoringService scoringService;
     private final CurrencyService currencyService;
     private final SiegePhaseStatus phaseStatus;
+    private final PlayerStateTransitionService playerStateTransitions;
 
     public SiegeDeathListener(
             TownyAdapter townyAdapter,
             ScoringService scoringService,
             CurrencyService currencyService,
-            SiegePhaseStatus phaseStatus
+            SiegePhaseStatus phaseStatus,
+            PlayerStateTransitionService playerStateTransitions
     ) {
         this.townyAdapter = townyAdapter;
         this.scoringService = scoringService;
         this.currencyService = currencyService;
         this.phaseStatus = phaseStatus;
+        this.playerStateTransitions = playerStateTransitions;
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void clearSiegeDeathDrops(PlayerDeathEvent event) {
+        if (playerStateTransitions.isInSiegeContext(event.getEntity())) {
+            event.getDrops().clear();
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

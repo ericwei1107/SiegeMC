@@ -2,9 +2,16 @@ package woo.siegePlugin.state;
 
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.capture.CaptureSessionStatus;
+import woo.siegePlugin.combat.CombatTagStatus;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
+import woo.siegePlugin.team.Team;
+import woo.siegePlugin.team.TeamAssignmentService;
+import woo.siegePlugin.team.TeamSpawnLocations;
+import woo.siegePlugin.team.TownyAdapter;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,8 +29,15 @@ public final class PlayerStateTransitionService {
     private final PlayerInventoryDao inventoryDao;
     private final KitLoadoutProvider kitLoadouts;
     private final SpectatorResidencyHandler spectatorResidency;
+    private final LobbySettings lobbySettings;
+    private final TownyAdapter townyAdapter;
+    private final TeamAssignmentService teamAssignmentService;
+    private final TeamSpawnLocations teamSpawnLocations;
+    private final CombatTagStatus combatTagStatus;
+    private final CaptureSessionStatus captureSessionStatus;
     private final Map<UUID, Long> operationVersions = new HashMap<>();
     private final Map<UUID, PlayerContext> contexts = new HashMap<>();
+    private final Map<UUID, PendingTransition> pendingTransitions = new HashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
     private Consumer<Player> spectatorStateChangeHandler = ignored -> {
     };
@@ -33,17 +47,48 @@ public final class PlayerStateTransitionService {
             JavaPlugin plugin,
             PlayerInventoryDao inventoryDao,
             KitLoadoutProvider kitLoadouts,
-            SpectatorResidencyHandler spectatorResidency
+            SpectatorResidencyHandler spectatorResidency,
+            LobbySettings lobbySettings,
+            TownyAdapter townyAdapter,
+            TeamAssignmentService teamAssignmentService,
+            TeamSpawnLocations teamSpawnLocations,
+            CombatTagStatus combatTagStatus,
+            CaptureSessionStatus captureSessionStatus
     ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.inventoryDao = Objects.requireNonNull(inventoryDao, "inventoryDao");
         this.kitLoadouts = Objects.requireNonNull(kitLoadouts, "kitLoadouts");
         this.spectatorResidency = Objects.requireNonNull(spectatorResidency, "spectatorResidency");
+        this.lobbySettings = Objects.requireNonNull(lobbySettings, "lobbySettings");
+        this.townyAdapter = Objects.requireNonNull(townyAdapter, "townyAdapter");
+        this.teamAssignmentService = Objects.requireNonNull(teamAssignmentService, "teamAssignmentService");
+        this.teamSpawnLocations = Objects.requireNonNull(teamSpawnLocations, "teamSpawnLocations");
+        this.combatTagStatus = Objects.requireNonNull(combatTagStatus, "combatTagStatus");
+        this.captureSessionStatus = Objects.requireNonNull(captureSessionStatus, "captureSessionStatus");
     }
 
-    public void enterSiegeFromLobby(Player player) {
+    /**
+     * Restores a lobby player's siege inventory and sends them to their Towny
+     * team's spawn. A player without a team receives the standard smaller-team
+     * assignment before the durable inventory handoff begins.
+     */
+    public TransitionResult enterSiegeFromLobby(Player player) {
         requireServerThread();
-        restoreStoredInventoryOrKit(player);
+        PlayerContext context = contextOf(player);
+        TransitionResult admission = checkSiegeEntry(
+                isTransitionPending(player),
+                context == PlayerContext.SPECTATOR,
+                context == PlayerContext.SIEGE,
+                context == PlayerContext.LOBBY
+        );
+        if (admission != TransitionResult.STARTED) {
+            return admission;
+        }
+
+        Team destination = townyAdapter.getPlayerTeam(player)
+                .orElseGet(() -> teamAssignmentService.assignToSmallerTeam(player));
+        beginSiegeEntry(player, destination, null);
+        return TransitionResult.STARTED;
     }
 
     /** Reconstructs a spectator context from Towny after a reconnect. */
@@ -78,24 +123,41 @@ public final class PlayerStateTransitionService {
         this.spectatorStateChangeHandler = Objects.requireNonNull(handler, "handler");
     }
 
-    public void returnToLobby(Player player) {
+    /** Starts the guarded save, clear, and lobby teleport handoff. */
+    public TransitionResult returnToLobby(Player player) {
         requireServerThread();
-        if (contextOf(player) != PlayerContext.SIEGE) {
-            return;
+        PlayerContext context = contextOf(player);
+        TransitionResult admission = checkLobbyEntry(
+                isTransitionPending(player),
+                context == PlayerContext.SPECTATOR,
+                context == PlayerContext.LOBBY,
+                combatTagStatus.isInCombat(player),
+                captureSessionStatus.isActiveParticipant(player)
+        );
+        if (admission != TransitionResult.STARTED) {
+            return admission;
         }
-        storeAndClear(player, PlayerContext.LOBBY, false);
+
+        beginLobbyEntry(player);
+        return TransitionResult.STARTED;
     }
 
-    public void enterSpectator(Player player) {
+    public TransitionResult enterSpectator(Player player) {
         requireServerThread();
         PlayerContext previousContext = contextOf(player);
-        if (previousContext == PlayerContext.SPECTATOR) {
-            return;
+        TransitionResult admission = checkSpectatorEntry(
+                isTransitionPending(player),
+                previousContext == PlayerContext.SPECTATOR,
+                combatTagStatus.isInCombat(player),
+                captureSessionStatus.isActiveParticipant(player)
+        );
+        if (admission != TransitionResult.STARTED) {
+            return admission;
         }
 
         if (previousContext == PlayerContext.SIEGE) {
             storeAndClear(player, PlayerContext.SPECTATOR, true);
-            return;
+            return TransitionResult.STARTED;
         }
 
         // Moving from the lobby must not overwrite the already-saved siege
@@ -107,15 +169,32 @@ public final class PlayerStateTransitionService {
             contexts.put(player.getUniqueId(), PlayerContext.SPECTATOR);
             player.setGameMode(GameMode.SPECTATOR);
             spectatorStateChangeHandler.accept(player);
+            return TransitionResult.STARTED;
         }
+        return TransitionResult.FAILED;
     }
 
     public void exitSpectator(Player player) {
         requireServerThread();
-        if (contextOf(player) != PlayerContext.SPECTATOR) {
+        if (isTransitionPending(player) || contextOf(player) != PlayerContext.SPECTATOR) {
             return;
         }
-        restoreStoredInventoryOrKit(player);
+        restoreInventoryInPlace(player);
+    }
+
+    /** Rejoins a spectator through the same durable inventory and teleport transaction. */
+    public TransitionResult rejoinSpectator(Player player) {
+        requireServerThread();
+        if (isTransitionPending(player)) {
+            return TransitionResult.TRANSITION_IN_PROGRESS;
+        }
+        if (!spectatorResidency.isSpectator(player)) {
+            return TransitionResult.NOT_SPECTATING;
+        }
+
+        Team destination = teamAssignmentService.assignToSmallerTeam(player);
+        beginSiegeEntry(player, destination, () -> spectatorResidency.enterSpectatorTown(player));
+        return TransitionResult.STARTED;
     }
 
     public void reapplyKitAfterRespawn(Player player) {
@@ -130,6 +209,7 @@ public final class PlayerStateTransitionService {
         UUID playerId = player.getUniqueId();
         operationVersions.remove(playerId);
         contexts.remove(playerId);
+        pendingTransitions.remove(playerId);
     }
 
     /**
@@ -140,12 +220,173 @@ public final class PlayerStateTransitionService {
         active.set(false);
         operationVersions.clear();
         contexts.clear();
+        pendingTransitions.clear();
+    }
+
+    /** Used by the death handler to preserve lobby inventories and drops. */
+    public boolean isInSiegeContext(Player player) {
+        requireServerThread();
+        return contextOf(player) == PlayerContext.SIEGE;
+    }
+
+    private void beginLobbyEntry(Player player) {
+        UUID playerId = player.getUniqueId();
+        PlayerContext previousContext = contextOf(player);
+        long operationVersion = nextOperation(playerId);
+        pendingTransitions.put(playerId, PendingTransition.LOBBY);
+        GameMode previousGameMode = player.getGameMode();
+
+        player.closeInventory();
+        PlayerInventorySnapshot snapshot = PlayerInventorySnapshot.capture(player.getInventory());
+        PlayerInventorySnapshot.clear(player.getInventory());
+
+        inventoryDao.save(playerId, snapshot.toBytes()).whenComplete((ignored, failure) -> {
+            if (failure == null) {
+                scheduleOnServerThread(() -> finishLobbyEntry(
+                        player,
+                        snapshot,
+                        previousContext,
+                        previousGameMode,
+                        operationVersion
+                ));
+                return;
+            }
+            scheduleOnServerThread(() -> handleSaveFailure(
+                    player,
+                    snapshot,
+                    previousContext,
+                    previousGameMode,
+                    null,
+                    operationVersion,
+                    failure
+            ));
+        });
+    }
+
+    private void finishLobbyEntry(
+            Player player,
+            PlayerInventorySnapshot snapshot,
+            PlayerContext previousContext,
+            GameMode previousGameMode,
+            long operationVersion
+    ) {
+        if (!isCurrent(player, operationVersion)) {
+            return;
+        }
+
+        if (!player.teleport(lobbySettings.spawn())) {
+            snapshot.restore(player.getInventory());
+            contexts.put(player.getUniqueId(), previousContext);
+            player.setGameMode(previousGameMode);
+            clearPending(player, operationVersion);
+            player.sendMessage("The lobby teleport failed, so your siege transition was cancelled.");
+            return;
+        }
+
+        contexts.put(player.getUniqueId(), PlayerContext.LOBBY);
+        clearPending(player, operationVersion);
+        spectatorStateChangeHandler.accept(player);
+        player.sendMessage("You are now in the lobby. Use /siege join to return to the battle.");
+    }
+
+    private void beginSiegeEntry(Player player, Team destination, Runnable failureRollback) {
+        UUID playerId = player.getUniqueId();
+        long operationVersion = nextOperation(playerId);
+        pendingTransitions.put(playerId, PendingTransition.SIEGE);
+        PlayerInventorySnapshot previousInventory = PlayerInventorySnapshot.capture(player.getInventory());
+        Location previousLocation = player.getLocation().clone();
+        GameMode previousGameMode = player.getGameMode();
+
+        inventoryDao.load(playerId).whenComplete((storedInventory, failure) ->
+                scheduleOnServerThread(() -> finishSiegeEntry(
+                        player,
+                        destination,
+                        previousInventory,
+                        previousLocation,
+                        previousGameMode,
+                        failureRollback,
+                        operationVersion,
+                        storedInventory,
+                        failure
+                ))
+        );
+    }
+
+    private void finishSiegeEntry(
+            Player player,
+            Team destination,
+            PlayerInventorySnapshot previousInventory,
+            Location previousLocation,
+            GameMode previousGameMode,
+            Runnable failureRollback,
+            long operationVersion,
+            Optional<byte[]> storedInventory,
+            Throwable failure
+    ) {
+        if (!isCurrent(player, operationVersion)) {
+            return;
+        }
+        if (failure != null) {
+            logInventoryFailure("load", player, failure);
+            clearPending(player, operationVersion);
+            rollbackSiegeEntry(player, previousInventory, previousLocation, previousGameMode, failureRollback);
+            player.sendMessage("Your siege inventory could not be loaded. The transition was cancelled.");
+            return;
+        }
+
+        try {
+            if (!player.teleport(teamSpawnLocations.get(destination))) {
+                throw new IllegalStateException("Could not teleport player to their team spawn");
+            }
+            player.setGameMode(GameMode.SURVIVAL);
+            PlayerInventorySnapshot.clear(player.getInventory());
+            if (storedInventory.isPresent()) {
+                PlayerInventorySnapshot.fromBytes(storedInventory.orElseThrow())
+                        .restore(player.getInventory());
+            } else {
+                kitLoadouts.apply(player);
+            }
+            contexts.put(player.getUniqueId(), PlayerContext.SIEGE);
+            clearPending(player, operationVersion);
+            spectatorStateChangeHandler.accept(player);
+            player.sendMessage("You joined " + destination.defaultDisplayName() + ".");
+        } catch (RuntimeException exception) {
+            logInventoryFailure("restore", player, exception);
+            clearPending(player, operationVersion);
+            rollbackSiegeEntry(player, previousInventory, previousLocation, previousGameMode, failureRollback);
+            player.sendMessage("Your siege transition was cancelled and your previous state was restored.");
+        }
+    }
+
+    private void rollbackSiegeEntry(
+            Player player,
+            PlayerInventorySnapshot previousInventory,
+            Location previousLocation,
+            GameMode previousGameMode,
+            Runnable failureRollback
+    ) {
+        if (failureRollback != null) {
+            try {
+                failureRollback.run();
+            } catch (RuntimeException exception) {
+                plugin.getLogger().log(Level.SEVERE, "Could not restore spectator residency for " + player.getName(), exception);
+            }
+        }
+        previousInventory.restore(player.getInventory());
+        player.setGameMode(previousGameMode);
+        player.teleport(previousLocation);
+        contexts.put(
+                player.getUniqueId(),
+                spectatorResidency.isSpectator(player) ? PlayerContext.SPECTATOR : PlayerContext.LOBBY
+        );
+        spectatorStateChangeHandler.accept(player);
     }
 
     private void storeAndClear(Player player, PlayerContext destination, boolean spectatorEntry) {
         UUID playerId = player.getUniqueId();
         PlayerContext previousContext = contextOf(player);
         long operationVersion = nextOperation(playerId);
+        pendingTransitions.put(playerId, PendingTransition.SPECTATOR);
         GameMode previousGameMode = player.getGameMode();
 
         // Closing first lets Bukkit settle any cursor item before the snapshot
@@ -170,6 +411,7 @@ public final class PlayerStateTransitionService {
         SpectatorResidencyHandler.Rollback rollbackForSave = residencyRollback;
         inventoryDao.save(playerId, snapshot.toBytes()).whenComplete((ignored, failure) -> {
             if (failure == null) {
+                scheduleOnServerThread(() -> clearPending(player, operationVersion));
                 return;
             }
             scheduleOnServerThread(() -> handleSaveFailure(
@@ -210,7 +452,7 @@ public final class PlayerStateTransitionService {
         }
     }
 
-    private void restoreStoredInventoryOrKit(Player player) {
+    private void restoreInventoryInPlace(Player player) {
         UUID playerId = player.getUniqueId();
         long operationVersion = nextOperation(playerId);
         PlayerInventorySnapshot.clear(player.getInventory());
@@ -277,6 +519,7 @@ public final class PlayerStateTransitionService {
             snapshot.restore(player.getInventory());
             contexts.put(player.getUniqueId(), previousContext);
             player.setGameMode(previousGameMode);
+            clearPending(player, operationVersion);
             spectatorStateChangeHandler.accept(player);
             player.sendMessage("Your siege inventory could not be stored, so the transition was cancelled.");
         } catch (RuntimeException restoreFailure) {
@@ -306,6 +549,74 @@ public final class PlayerStateTransitionService {
                 && operationVersions.getOrDefault(player.getUniqueId(), 0L) == operationVersion;
     }
 
+    private boolean isTransitionPending(Player player) {
+        return pendingTransitions.containsKey(player.getUniqueId());
+    }
+
+    static TransitionResult checkSiegeEntry(
+            boolean transitionPending,
+            boolean spectatorContext,
+            boolean siegeContext,
+            boolean lobbyContext
+    ) {
+        if (transitionPending) {
+            return TransitionResult.TRANSITION_IN_PROGRESS;
+        }
+        if (spectatorContext) {
+            return TransitionResult.SPECTATOR_CONTEXT;
+        }
+        if (siegeContext) {
+            return TransitionResult.ALREADY_IN_SIEGE;
+        }
+        return lobbyContext ? TransitionResult.STARTED : TransitionResult.NOT_IN_LOBBY;
+    }
+
+    static TransitionResult checkLobbyEntry(
+            boolean transitionPending,
+            boolean spectatorContext,
+            boolean lobbyContext,
+            boolean combatTagged,
+            boolean captureSessionActive
+    ) {
+        if (transitionPending) {
+            return TransitionResult.TRANSITION_IN_PROGRESS;
+        }
+        if (spectatorContext) {
+            return TransitionResult.SPECTATOR_CONTEXT;
+        }
+        if (lobbyContext) {
+            return TransitionResult.ALREADY_IN_LOBBY;
+        }
+        if (combatTagged) {
+            return TransitionResult.COMBAT_TAGGED;
+        }
+        return captureSessionActive ? TransitionResult.CAPTURE_SESSION_ACTIVE : TransitionResult.STARTED;
+    }
+
+    static TransitionResult checkSpectatorEntry(
+            boolean transitionPending,
+            boolean spectatorContext,
+            boolean combatTagged,
+            boolean captureSessionActive
+    ) {
+        if (transitionPending) {
+            return TransitionResult.TRANSITION_IN_PROGRESS;
+        }
+        if (spectatorContext) {
+            return TransitionResult.SPECTATOR_CONTEXT;
+        }
+        if (combatTagged) {
+            return TransitionResult.COMBAT_TAGGED;
+        }
+        return captureSessionActive ? TransitionResult.CAPTURE_SESSION_ACTIVE : TransitionResult.STARTED;
+    }
+
+    private void clearPending(Player player, long operationVersion) {
+        if (operationVersions.getOrDefault(player.getUniqueId(), 0L) == operationVersion) {
+            pendingTransitions.remove(player.getUniqueId());
+        }
+    }
+
     private long nextOperation(UUID playerId) {
         long next = ++operationSequence;
         operationVersions.put(playerId, next);
@@ -317,7 +628,12 @@ public final class PlayerStateTransitionService {
         if (known != null) {
             return known;
         }
-        return spectatorResidency.isSpectator(player) ? PlayerContext.SPECTATOR : PlayerContext.SIEGE;
+        if (spectatorResidency.isSpectator(player)) {
+            return PlayerContext.SPECTATOR;
+        }
+        return player.getWorld().equals(lobbySettings.spawn().getWorld())
+                ? PlayerContext.LOBBY
+                : PlayerContext.SIEGE;
     }
 
     private void logInventoryFailure(String operation, Player player, Throwable failure) {
@@ -342,5 +658,24 @@ public final class PlayerStateTransitionService {
         LOBBY,
         SIEGE,
         SPECTATOR
+    }
+
+    private enum PendingTransition {
+        LOBBY,
+        SIEGE,
+        SPECTATOR
+    }
+
+    public enum TransitionResult {
+        STARTED,
+        ALREADY_IN_LOBBY,
+        ALREADY_IN_SIEGE,
+        NOT_IN_LOBBY,
+        SPECTATOR_CONTEXT,
+        NOT_SPECTATING,
+        COMBAT_TAGGED,
+        CAPTURE_SESSION_ACTIVE,
+        TRANSITION_IN_PROGRESS,
+        FAILED
     }
 }

@@ -8,8 +8,6 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import woo.siegePlugin.team.Team;
-import woo.siegePlugin.team.TeamAssignmentService;
-import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TeamSwitchResult;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
@@ -18,7 +16,6 @@ import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.ShopMenu;
 import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.state.PlayerStateTransitionService;
-import woo.siegePlugin.state.PlayerStateTransitions;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -31,11 +28,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
 
     private final TownyAdapter townyAdapter;
     private final TeamSwitchService teamSwitchService;
-    private final TeamAssignmentService teamAssignmentService;
-    private final TeamSpawnLocations teamSpawnLocations;
     private final TeamDisplayService teamDisplayService;
     private final PlayerStateTransitionService playerStateTransitionService;
-    private final PlayerStateTransitions playerStateTransitions;
     private final SiegeAdminCommand adminCommand;
     private final CurrencyService currencyService;
     private final KitEditorListener kitEditorListener;
@@ -44,11 +38,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     public SiegeCommand(
             TownyAdapter townyAdapter,
             TeamSwitchService teamSwitchService,
-            TeamAssignmentService teamAssignmentService,
-            TeamSpawnLocations teamSpawnLocations,
             TeamDisplayService teamDisplayService,
             PlayerStateTransitionService playerStateTransitionService,
-            PlayerStateTransitions playerStateTransitions,
             SiegeAdminCommand adminCommand,
             CurrencyService currencyService,
             KitEditorListener kitEditorListener,
@@ -56,11 +47,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
-        this.teamAssignmentService = teamAssignmentService;
-        this.teamSpawnLocations = teamSpawnLocations;
         this.teamDisplayService = teamDisplayService;
         this.playerStateTransitionService = playerStateTransitionService;
-        this.playerStateTransitions = playerStateTransitions;
         this.adminCommand = adminCommand;
         this.currencyService = currencyService;
         this.kitEditorListener = kitEditorListener;
@@ -95,8 +83,15 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         if (args.length >= 1 && args[0].equalsIgnoreCase("rejoin")) {
             return handleRejoin(sender);
         }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("join")) {
+            return handleJoin(sender);
+        }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("lobby")) {
+            return handleLobby(sender);
+        }
 
-        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop|kit|spectate|rejoin>");
+        sender.sendMessage("Usage: /" + label
+                + " <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby>");
         return true;
     }
 
@@ -109,14 +104,13 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             player.sendMessage("You do not have permission to spectate the siege.");
             return true;
         }
-        if (townyAdapter.isSpectator(player)) {
-            player.sendMessage("You are already spectating the siege.");
-            return true;
-        }
-
-        playerStateTransitions.enterSpectator(player);
-        if (townyAdapter.isSpectator(player)) {
-            player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
+        switch (playerStateTransitionService.enterSpectator(player)) {
+            case STARTED -> player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
+            case SPECTATOR_CONTEXT -> player.sendMessage("You are already spectating the siege.");
+            case COMBAT_TAGGED -> player.sendMessage("You cannot spectate while combat-tagged.");
+            case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot spectate during an active capture session.");
+            case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
+            default -> player.sendMessage("Spectator mode could not be entered. Please contact an administrator.");
         }
         return true;
     }
@@ -130,30 +124,77 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             player.sendMessage("You do not have permission to rejoin the siege.");
             return true;
         }
-        if (!townyAdapter.isSpectator(player)) {
-            player.sendMessage("You must be in SpectatorTown before you can rejoin the siege.");
-            return true;
-        }
-
         try {
-            // This intentionally reuses join-time smaller-team assignment,
-            // rather than team-switch cooldown and imbalance rules.
-            playerStateTransitionService.rememberSpectatorContext(player);
-            Team destination = teamAssignmentService.assignToSmallerTeam(player);
-            player.setGameMode(org.bukkit.GameMode.SURVIVAL);
-            boolean teleported = player.teleport(teamSpawnLocations.get(destination));
-            playerStateTransitions.exitSpectator(player);
-            teamDisplayService.handleTeamSwitch(player);
-
-            if (teleported) {
-                player.sendMessage("You rejoined " + destination.defaultDisplayName() + ".");
-            } else {
-                player.sendMessage("You rejoined " + destination.defaultDisplayName()
-                        + ", but could not be teleported to its spawn.");
+            switch (playerStateTransitionService.rejoinSpectator(player)) {
+                case STARTED -> {
+                    // The transition service confirms completion after the
+                    // durable inventory restore and team-spawn teleport.
+                }
+                case NOT_SPECTATING -> player.sendMessage("You must be in SpectatorTown before you can rejoin the siege.");
+                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
+                default -> player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
             }
         } catch (RuntimeException exception) {
             logger.log(java.util.logging.Level.SEVERE, "Could not rejoin " + player.getName() + " to the siege.", exception);
             player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
+        }
+        return true;
+    }
+
+    private boolean handleJoin(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can join the siege.");
+            return true;
+        }
+        if (!player.hasPermission("siege.join")) {
+            player.sendMessage("You do not have permission to join the siege.");
+            return true;
+        }
+
+        try {
+            switch (playerStateTransitionService.enterSiegeFromLobby(player)) {
+                case STARTED -> {
+                    // The service sends the success message once persistence,
+                    // teleport, and inventory restoration have all completed.
+                }
+                case ALREADY_IN_SIEGE -> player.sendMessage("You are already in the siege. Use /siege lobby first.");
+                case NOT_IN_LOBBY -> player.sendMessage("You must be in the lobby before joining the siege.");
+                case SPECTATOR_CONTEXT -> player.sendMessage("Use /siege rejoin to return from spectator mode.");
+                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
+                default -> player.sendMessage("You could not join the siege. Please contact an administrator.");
+            }
+        } catch (RuntimeException exception) {
+            logger.log(java.util.logging.Level.SEVERE, "Could not start a siege join for " + player.getName(), exception);
+            player.sendMessage("You could not join the siege. Please contact an administrator.");
+        }
+        return true;
+    }
+
+    private boolean handleLobby(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can return to the lobby.");
+            return true;
+        }
+        if (!player.hasPermission("siege.lobby")) {
+            player.sendMessage("You do not have permission to return to the lobby.");
+            return true;
+        }
+
+        try {
+            switch (playerStateTransitionService.returnToLobby(player)) {
+                case STARTED -> {
+                    // The service reports success only after the inventory is durable.
+                }
+                case ALREADY_IN_LOBBY -> player.sendMessage("You are already in the lobby.");
+                case SPECTATOR_CONTEXT -> player.sendMessage("Spectators must use /siege rejoin to return to the battle.");
+                case COMBAT_TAGGED -> player.sendMessage("You cannot return to the lobby while combat-tagged.");
+                case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot return to the lobby during an active capture session.");
+                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
+                default -> player.sendMessage("You could not return to the lobby. Please contact an administrator.");
+            }
+        } catch (RuntimeException exception) {
+            logger.log(java.util.logging.Level.SEVERE, "Could not start a lobby transition for " + player.getName(), exception);
+            player.sendMessage("You could not return to the lobby. Please contact an administrator.");
         }
         return true;
     }
@@ -305,6 +346,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             }
             if (sender.hasPermission("siege.rejoin") && "rejoin".startsWith(prefix)) {
                 suggestions.add("rejoin");
+            }
+            if (sender.hasPermission("siege.join") && "join".startsWith(prefix)) {
+                suggestions.add("join");
+            }
+            if (sender.hasPermission("siege.lobby") && "lobby".startsWith(prefix)) {
+                suggestions.add("lobby");
             }
             return suggestions;
         }
