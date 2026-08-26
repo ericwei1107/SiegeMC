@@ -13,10 +13,7 @@ public interface SiegePhaseStatus {
         return currentPhase() == SiegePhase.ACTIVE;
     }
 
-    /**
-     * Stage 4.4h.1 replaces this with the real timed cycle. Until then the
-     * server behaves exactly as that stage's boot state: permanently ACTIVE.
-     */
+    /** Returns an ACTIVE status for isolated callers that do not own a cycle. */
     static SiegePhaseStatus alwaysActive() {
         return () -> SiegePhase.ACTIVE;
     }

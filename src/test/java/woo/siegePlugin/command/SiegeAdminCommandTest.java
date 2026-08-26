@@ -39,7 +39,7 @@ class SiegeAdminCommandTest {
     }
 
     private static SiegeAdminCommand command() {
-        return new SiegeAdminCommand(null, null, null, null, null, Logger.getAnonymousLogger());
+        return new SiegeAdminCommand(null, null, null, null, null, null, Logger.getAnonymousLogger());
     }
 
     private static CommandSender sender(boolean admin, boolean resetScores, List<String> messages) {

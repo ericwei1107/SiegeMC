@@ -39,6 +39,7 @@ public final class ScoringService {
 
     private MatchRecord scores;
     private BukkitTask task;
+    private long activeWindowGeneration;
 
     public ScoringService(
             JavaPlugin plugin,
@@ -87,6 +88,13 @@ public final class ScoringService {
             }
             completion.accept(reset, failure);
         }));
+    }
+
+    /** Starts a new ephemeral ACTIVE window without affecting persistent scores. */
+    public void beginActiveWindow() {
+        activeWindowGeneration++;
+        sessionPoints.reset();
+        publishSessionPoints();
     }
 
     private void finishStart(MatchRecord loaded, Throwable failure) {
@@ -141,6 +149,7 @@ public final class ScoringService {
             plugin.getLogger().warning("Ignoring a " + reason + " award because " + MATCH_ID + " is not loaded.");
             return;
         }
+        long awardWindowGeneration = activeWindowGeneration;
 
         matchScoreDao.award(MATCH_ID, team, points, reason).whenComplete((updated, failure) ->
                 onServerThread(() -> {
@@ -152,13 +161,24 @@ public final class ScoringService {
                     // so the sidebar never shows points that failed to save or
                     // rewards earned for a different reason.
                     scores = updated;
-                    if (reason.contributesToSessionPoints()) {
+                    if (shouldApplySessionPoints(reason, phaseStatus, awardWindowGeneration, activeWindowGeneration)) {
                         sessionPoints.add(team, points);
                     }
                     publishScores();
                     publishSessionPoints();
                 })
         );
+    }
+
+    static boolean shouldApplySessionPoints(
+            ScoreReason reason,
+            SiegePhaseStatus phaseStatus,
+            long awardWindowGeneration,
+            long currentWindowGeneration
+    ) {
+        return reason.contributesToSessionPoints()
+                && phaseStatus.isActive()
+                && awardWindowGeneration == currentWindowGeneration;
     }
 
     private void publishScores() {

@@ -10,6 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import woo.siegePlugin.display.SidebarService;
+import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TownyAdapter;
 
@@ -39,6 +40,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     private final Map<UUID, CaptureSession> sessions = new LinkedHashMap<>();
     private final Clock clock;
     private final CaptureSettings settings;
+    private final SiegePhaseStatus phaseStatus;
 
     private BukkitTask task;
     private boolean suspended;
@@ -50,9 +52,10 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
             TownyAdapter townyAdapter,
             SidebarService sidebarService,
             CaptureBanner banner,
-            CaptureSettings settings
+            CaptureSettings settings,
+            SiegePhaseStatus phaseStatus
     ) {
-        this(plugin, townyAdapter, sidebarService, banner, settings, Clock.systemUTC());
+        this(plugin, townyAdapter, sidebarService, banner, settings, phaseStatus, Clock.systemUTC());
     }
 
     CaptureService(
@@ -61,6 +64,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
             SidebarService sidebarService,
             CaptureBanner banner,
             CaptureSettings settings,
+            SiegePhaseStatus phaseStatus,
             Clock clock
     ) {
         this.plugin = plugin;
@@ -68,6 +72,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         this.sidebarService = sidebarService;
         this.banner = banner;
         this.settings = settings;
+        this.phaseStatus = phaseStatus;
         this.clock = clock;
         this.bossBars = new CaptureBossBars(plugin.getServer());
     }
@@ -129,6 +134,17 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         publishControl();
     }
 
+    /** Cancels in-progress sessions while preserving completed controllers. */
+    public void cancelInProgressSessions() {
+        for (UUID playerId : List.copyOf(sessions.keySet())) {
+            sessions.remove(playerId);
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player != null) {
+                bossBars.remove(player);
+            }
+        }
+    }
+
     public CaptureBanner banner() {
         return banner;
     }
@@ -175,6 +191,10 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     private void tick() {
         if (suspended) {
             // Restoring tiles would fight with rebuilding the banner.
+            return;
+        }
+        if (!phaseStatus.isActive()) {
+            cancelInProgressSessions();
             return;
         }
         banner.ensurePresent();

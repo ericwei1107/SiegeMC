@@ -10,7 +10,7 @@ depend: [Towny, CombatLog]
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>|shop|kit|admin <setbanner|resetscores|setresetpos1|setresetpos2|savesnapshot|resetmap>>
+    usage: /siege <team|switch <red|blue>|shop|kit|admin <setbanner|resetscores|break [seconds]|resume|setresetpos1|setresetpos2|savesnapshot|resetmap>>
 
 permissions:
   siege.team:

@@ -30,6 +30,8 @@ import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.cycle.ActivityCycleSettings;
+import woo.siegePlugin.cycle.ActivityCycleService;
+import woo.siegePlugin.cycle.SiegePhase;
 import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.kit.KitProfile;
@@ -73,6 +75,7 @@ public final class SiegePlugin extends JavaPlugin {
     private CaptureService captureService;
     private ScoringService scoringService;
     private SiegePhaseStatus phaseStatus;
+    private ActivityCycleService activityCycleService;
     private ArenaSnapshotService arenaSnapshotService;
     private ArenaResetService arenaResetService;
     private MinecartSweeper minecartSweeper;
@@ -118,12 +121,19 @@ public final class SiegePlugin extends JavaPlugin {
                 identityColors
         );
         teamDisplayService.setScoreboardReadyHandler(sidebarService::initializePlayer);
+        this.activityCycleService = new ActivityCycleService(
+                this,
+                sidebarService,
+                ActivityCycleSettings.fromConfig(getConfig())
+        );
+        this.phaseStatus = activityCycleService;
         this.captureService = new CaptureService(
                 this,
                 townyAdapter,
                 sidebarService,
                 CaptureBanner.fromConfig(getConfig(), getServer(), getLogger()),
-                CaptureSettings.fromConfig(getConfig())
+                CaptureSettings.fromConfig(getConfig()),
+                phaseStatus
         );
         Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
         this.teamSwitchService = new TeamSwitchService(
@@ -132,8 +142,6 @@ public final class SiegePlugin extends JavaPlugin {
                 captureService,
                 TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
-        // Stage 4.4h.1 replaces this with the real timed cycle.
-        this.phaseStatus = SiegePhaseStatus.alwaysActive();
         this.scoringService = new ScoringService(
                 this,
                 new MatchScoreDao(database),
@@ -143,6 +151,9 @@ public final class SiegePlugin extends JavaPlugin {
                 ScoringSettings.fromConfig(getConfig()),
                 MatchDefinition.eternalForWorld(Objects.requireNonNull(getConfig().getString("capture-point.world")))
         );
+        activityCycleService.setPhaseChangeListener(this::handlePhaseChange);
+        // A boot is the first ACTIVE window, so BAT points begin explicitly at zero.
+        scoringService.beginActiveWindow();
         this.currencyService = new CurrencyService(
                 this,
                 new PlayerBalanceDao(database),
@@ -157,6 +168,7 @@ public final class SiegePlugin extends JavaPlugin {
         kitService.loadOnlinePlayers();
         captureService.start();
         scoringService.start();
+        activityCycleService.start();
         minecartSweeper.start();
 
         if (!arenaResetService.hasSnapshot()) {
@@ -177,6 +189,9 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (scoringService != null) {
             scoringService.stop();
+        }
+        if (activityCycleService != null) {
+            activityCycleService.stop();
         }
         if (arenaSnapshotService != null) {
             arenaSnapshotService.stop();
@@ -281,6 +296,7 @@ public final class SiegePlugin extends JavaPlugin {
                         scoringService,
                         arenaSnapshotService,
                         arenaResetService,
+                        activityCycleService,
                         getLogger()
                 ),
                 currencyService,
@@ -289,6 +305,14 @@ public final class SiegePlugin extends JavaPlugin {
         );
         siegeCommand.setExecutor(commandHandler);
         siegeCommand.setTabCompleter(commandHandler);
+    }
+
+    private void handlePhaseChange(SiegePhase previous, SiegePhase current) {
+        if (current == SiegePhase.BREAK) {
+            captureService.cancelInProgressSessions();
+            return;
+        }
+        scoringService.beginActiveWindow();
     }
 
     private void registerListeners() {
