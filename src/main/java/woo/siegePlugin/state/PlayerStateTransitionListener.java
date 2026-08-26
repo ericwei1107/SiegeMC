@@ -4,6 +4,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import woo.siegePlugin.state.event.LobbyToSiegeEvent;
 import woo.siegePlugin.state.event.PlayerEnterSpectatorEvent;
@@ -18,6 +19,11 @@ public final class PlayerStateTransitionListener implements Listener {
 
     public PlayerStateTransitionListener(PlayerStateTransitionService transitions) {
         this.transitions = Objects.requireNonNull(transitions, "transitions");
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        transitions.handleJoin(event.getPlayer());
     }
 
     @EventHandler

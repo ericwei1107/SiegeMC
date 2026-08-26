@@ -1,6 +1,7 @@
 package woo.siegePlugin.state;
 
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
@@ -13,6 +14,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
+import java.util.function.Consumer;
 
 public final class PlayerStateTransitionService {
 
@@ -23,6 +25,8 @@ public final class PlayerStateTransitionService {
     private final Map<UUID, Long> operationVersions = new HashMap<>();
     private final Map<UUID, PlayerContext> contexts = new HashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
+    private Consumer<Player> spectatorStateChangeHandler = ignored -> {
+    };
     private long operationSequence;
 
     public PlayerStateTransitionService(
@@ -40,6 +44,38 @@ public final class PlayerStateTransitionService {
     public void enterSiegeFromLobby(Player player) {
         requireServerThread();
         restoreStoredInventoryOrKit(player);
+    }
+
+    /** Reconstructs a spectator context from Towny after a reconnect. */
+    public void handleJoin(Player player) {
+        requireServerThread();
+        // Towny prepares its Resident record during its own join listener.
+        // Deferring one tick makes the Towny residency authoritative before we
+        // decide whether this player is a persisted spectator.
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!active.get() || !player.isOnline() || !rememberSpectatorContext(player)) {
+                return;
+            }
+            player.setGameMode(GameMode.SPECTATOR);
+        });
+    }
+
+    /**
+     * Captures authoritative spectator residency before a rejoin moves the
+     * player back into a combat town, so the subsequent inventory restore
+     * cannot lose its spectator context during that handoff.
+     */
+    public boolean rememberSpectatorContext(Player player) {
+        requireServerThread();
+        if (!spectatorResidency.isSpectator(player)) {
+            return false;
+        }
+        contexts.put(player.getUniqueId(), PlayerContext.SPECTATOR);
+        return true;
+    }
+
+    public void setSpectatorStateChangeHandler(Consumer<Player> handler) {
+        this.spectatorStateChangeHandler = Objects.requireNonNull(handler, "handler");
     }
 
     public void returnToLobby(Player player) {
@@ -64,10 +100,13 @@ public final class PlayerStateTransitionService {
 
         // Moving from the lobby must not overwrite the already-saved siege
         // inventory with the lobby's intentionally empty inventory.
-        long operationVersion = nextOperation(player.getUniqueId());
+        nextOperation(player.getUniqueId());
+        GameMode previousGameMode = player.getGameMode();
         PlayerInventorySnapshot.clear(player.getInventory());
-        if (removeFromCombatTown(player, null, previousContext)) {
+        if (enterSpectatorTown(player, null, previousContext, previousGameMode) != null) {
             contexts.put(player.getUniqueId(), PlayerContext.SPECTATOR);
+            player.setGameMode(GameMode.SPECTATOR);
+            spectatorStateChangeHandler.accept(player);
         }
     }
 
@@ -107,6 +146,7 @@ public final class PlayerStateTransitionService {
         UUID playerId = player.getUniqueId();
         PlayerContext previousContext = contextOf(player);
         long operationVersion = nextOperation(playerId);
+        GameMode previousGameMode = player.getGameMode();
 
         // Closing first lets Bukkit settle any cursor item before the snapshot
         // is taken. Stage 4.4k will add its kit-editor-specific close handling.
@@ -114,15 +154,20 @@ public final class PlayerStateTransitionService {
         PlayerInventorySnapshot snapshot = PlayerInventorySnapshot.capture(player.getInventory());
         PlayerInventorySnapshot.clear(player.getInventory());
 
-        if (spectatorEntry && !removeFromCombatTown(
-                player,
-                snapshot,
-                previousContext
-        )) {
-            return;
+        SpectatorResidencyHandler.Rollback residencyRollback = null;
+        if (spectatorEntry) {
+            residencyRollback = enterSpectatorTown(player, snapshot, previousContext, previousGameMode);
+            if (residencyRollback == null) {
+                return;
+            }
         }
 
         contexts.put(playerId, destination);
+        if (spectatorEntry) {
+            player.setGameMode(GameMode.SPECTATOR);
+            spectatorStateChangeHandler.accept(player);
+        }
+        SpectatorResidencyHandler.Rollback rollbackForSave = residencyRollback;
         inventoryDao.save(playerId, snapshot.toBytes()).whenComplete((ignored, failure) -> {
             if (failure == null) {
                 return;
@@ -131,25 +176,28 @@ public final class PlayerStateTransitionService {
                     player,
                     snapshot,
                     previousContext,
+                    previousGameMode,
+                    rollbackForSave,
                     operationVersion,
                     failure
             ));
         });
     }
 
-    private boolean removeFromCombatTown(
+    private SpectatorResidencyHandler.Rollback enterSpectatorTown(
             Player player,
             PlayerInventorySnapshot rollbackInventory,
-            PlayerContext rollbackContext
+            PlayerContext rollbackContext,
+            GameMode rollbackGameMode
     ) {
         try {
-            spectatorResidency.removeFromCombatTown(player);
-            return true;
+            return spectatorResidency.enterSpectatorTown(player);
         } catch (RuntimeException exception) {
             if (rollbackInventory != null) {
                 rollbackInventory.restore(player.getInventory());
             }
             contexts.put(player.getUniqueId(), rollbackContext);
+            player.setGameMode(rollbackGameMode);
             plugin.getLogger().log(
                     Level.SEVERE,
                     "Could not move " + player.getName() + " out of their combat town for spectator entry.",
@@ -158,7 +206,7 @@ public final class PlayerStateTransitionService {
             player.sendMessage("Spectator mode could not be entered. Your inventory was restored.");
             // Invalidate any completion belonging to this failed transition.
             nextOperation(player.getUniqueId());
-            return false;
+            return null;
         }
     }
 
@@ -201,6 +249,7 @@ public final class PlayerStateTransitionService {
                 kitLoadouts.apply(player);
             }
             contexts.put(player.getUniqueId(), PlayerContext.SIEGE);
+            spectatorStateChangeHandler.accept(player);
         } catch (RuntimeException exception) {
             logInventoryFailure("restore", player, exception);
             player.sendMessage("Your siege inventory could not be restored. Please contact an administrator.");
@@ -211,6 +260,8 @@ public final class PlayerStateTransitionService {
             Player player,
             PlayerInventorySnapshot snapshot,
             PlayerContext previousContext,
+            GameMode previousGameMode,
+            SpectatorResidencyHandler.Rollback residencyRollback,
             long operationVersion,
             Throwable failure
     ) {
@@ -220,8 +271,13 @@ public final class PlayerStateTransitionService {
         }
 
         try {
+            if (residencyRollback != null) {
+                residencyRollback.restore(player);
+            }
             snapshot.restore(player.getInventory());
             contexts.put(player.getUniqueId(), previousContext);
+            player.setGameMode(previousGameMode);
+            spectatorStateChangeHandler.accept(player);
             player.sendMessage("Your siege inventory could not be stored, so the transition was cancelled.");
         } catch (RuntimeException restoreFailure) {
             plugin.getLogger().log(
@@ -257,7 +313,11 @@ public final class PlayerStateTransitionService {
     }
 
     private PlayerContext contextOf(Player player) {
-        return contexts.getOrDefault(player.getUniqueId(), PlayerContext.SIEGE);
+        PlayerContext known = contexts.get(player.getUniqueId());
+        if (known != null) {
+            return known;
+        }
+        return spectatorResidency.isSpectator(player) ? PlayerContext.SPECTATOR : PlayerContext.SIEGE;
     }
 
     private void logInventoryFailure(String operation, Player player, Throwable failure) {

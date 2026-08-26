@@ -21,19 +21,31 @@ public final class TeamAssignmentService {
      * one of the two configured teams
      */
     public Optional<Team> assignIfMissing(Player player) {
-        if (townyAdapter.getPlayerTeam(player).isPresent()) {
+        if (!shouldAssignOnJoin(
+                townyAdapter.getPlayerTeam(player).isPresent(),
+                townyAdapter.isSpectator(player)
+        )) {
             return Optional.empty();
         }
 
+        return Optional.of(assignToSmallerTeam(player));
+    }
+
+    /** Rejoin uses this directly, deliberately bypassing switch cooldown rules. */
+    public Team assignToSmallerTeam(Player player) {
         int redResidents = townyAdapter.getResidentCount(Team.RED);
         int blueResidents = townyAdapter.getResidentCount(Team.BLUE);
         Team destination = selectSmallerTeam(redResidents, blueResidents);
 
         townyAdapter.setPlayerTeam(player, destination);
-        return Optional.of(destination);
+        return destination;
     }
 
     static Team selectSmallerTeam(int redResidents, int blueResidents) {
         return redResidents <= blueResidents ? Team.RED : Team.BLUE;
+    }
+
+    static boolean shouldAssignOnJoin(boolean alreadyOnCompetitiveTeam, boolean spectatorResident) {
+        return !alreadyOnCompetitiveTeam && !spectatorResident;
     }
 }

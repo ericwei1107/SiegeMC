@@ -97,7 +97,9 @@ public final class SiegePlugin extends JavaPlugin {
         // overwrite an existing file.
         saveDefaultConfig();
 
-        List<String> problems = validateStartup();
+        List<String> problems = new ArrayList<>();
+        problems.addAll(TownyAdapter.provisionSpectatorTown(getConfig()));
+        problems.addAll(validateStartup());
 
         if (!problems.isEmpty()) {
             getLogger().severe("SiegeMC failed to start due to invalid configuration:");
@@ -118,6 +120,7 @@ public final class SiegePlugin extends JavaPlugin {
                 townyAdapter,
                 identityColors
         );
+        playerStateTransitionService.setSpectatorStateChangeHandler(teamDisplayService::handleTeamSwitch);
         this.sidebarService = new SidebarService(
                 getServer(),
                 teamDisplayService,
@@ -297,7 +300,11 @@ public final class SiegePlugin extends JavaPlugin {
         SiegeCommand commandHandler = new SiegeCommand(
                 townyAdapter,
                 teamSwitchService,
+                teamAssignmentService,
+                TeamSpawnLocations.fromConfig(getConfig(), getServer()),
                 teamDisplayService,
+                playerStateTransitionService,
+                playerStateTransitions,
                 new SiegeAdminCommand(
                         this,
                         captureService,
@@ -402,7 +409,7 @@ public final class SiegePlugin extends JavaPlugin {
                 this,
                 new PlayerInventoryDao(database),
                 kitService,
-                SpectatorResidencyHandler.deferredUntilStage4_4l()
+                SpectatorResidencyHandler.forTowny(townyAdapter)
         );
         this.playerStateTransitions = new PlayerStateTransitions(getServer());
 

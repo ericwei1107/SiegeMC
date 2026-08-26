@@ -16,4 +16,11 @@ class TeamAssignmentServiceTest {
         assertEquals(Team.RED, TeamAssignmentService.selectSmallerTeam(2, 5));
         assertEquals(Team.BLUE, TeamAssignmentService.selectSmallerTeam(6, 3));
     }
+
+    @Test
+    void spectatorResidentsAreNeverAutoAssignedOnReconnect() {
+        assertEquals(false, TeamAssignmentService.shouldAssignOnJoin(false, true));
+        assertEquals(false, TeamAssignmentService.shouldAssignOnJoin(true, false));
+        assertEquals(true, TeamAssignmentService.shouldAssignOnJoin(false, false));
+    }
 }

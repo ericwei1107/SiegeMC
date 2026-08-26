@@ -8,6 +8,8 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import woo.siegePlugin.team.Team;
+import woo.siegePlugin.team.TeamAssignmentService;
+import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TeamSwitchResult;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
@@ -15,6 +17,8 @@ import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.ShopMenu;
 import woo.siegePlugin.kit.KitEditorListener;
+import woo.siegePlugin.state.PlayerStateTransitionService;
+import woo.siegePlugin.state.PlayerStateTransitions;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -27,7 +31,11 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
 
     private final TownyAdapter townyAdapter;
     private final TeamSwitchService teamSwitchService;
+    private final TeamAssignmentService teamAssignmentService;
+    private final TeamSpawnLocations teamSpawnLocations;
     private final TeamDisplayService teamDisplayService;
+    private final PlayerStateTransitionService playerStateTransitionService;
+    private final PlayerStateTransitions playerStateTransitions;
     private final SiegeAdminCommand adminCommand;
     private final CurrencyService currencyService;
     private final KitEditorListener kitEditorListener;
@@ -36,7 +44,11 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     public SiegeCommand(
             TownyAdapter townyAdapter,
             TeamSwitchService teamSwitchService,
+            TeamAssignmentService teamAssignmentService,
+            TeamSpawnLocations teamSpawnLocations,
             TeamDisplayService teamDisplayService,
+            PlayerStateTransitionService playerStateTransitionService,
+            PlayerStateTransitions playerStateTransitions,
             SiegeAdminCommand adminCommand,
             CurrencyService currencyService,
             KitEditorListener kitEditorListener,
@@ -44,7 +56,11 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
+        this.teamAssignmentService = teamAssignmentService;
+        this.teamSpawnLocations = teamSpawnLocations;
         this.teamDisplayService = teamDisplayService;
+        this.playerStateTransitionService = playerStateTransitionService;
+        this.playerStateTransitions = playerStateTransitions;
         this.adminCommand = adminCommand;
         this.currencyService = currencyService;
         this.kitEditorListener = kitEditorListener;
@@ -73,8 +89,72 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         if (args.length >= 1 && args[0].equalsIgnoreCase("kit")) {
             return handleKit(sender);
         }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("spectate")) {
+            return handleSpectate(sender);
+        }
+        if (args.length >= 1 && args[0].equalsIgnoreCase("rejoin")) {
+            return handleRejoin(sender);
+        }
 
-        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop|kit>");
+        sender.sendMessage("Usage: /" + label + " <team|switch <red|blue>|shop|kit|spectate|rejoin>");
+        return true;
+    }
+
+    private boolean handleSpectate(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can spectate a siege.");
+            return true;
+        }
+        if (!player.hasPermission("siege.spectate")) {
+            player.sendMessage("You do not have permission to spectate the siege.");
+            return true;
+        }
+        if (townyAdapter.isSpectator(player)) {
+            player.sendMessage("You are already spectating the siege.");
+            return true;
+        }
+
+        playerStateTransitions.enterSpectator(player);
+        if (townyAdapter.isSpectator(player)) {
+            player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
+        }
+        return true;
+    }
+
+    private boolean handleRejoin(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can rejoin the siege.");
+            return true;
+        }
+        if (!player.hasPermission("siege.rejoin")) {
+            player.sendMessage("You do not have permission to rejoin the siege.");
+            return true;
+        }
+        if (!townyAdapter.isSpectator(player)) {
+            player.sendMessage("You must be in SpectatorTown before you can rejoin the siege.");
+            return true;
+        }
+
+        try {
+            // This intentionally reuses join-time smaller-team assignment,
+            // rather than team-switch cooldown and imbalance rules.
+            playerStateTransitionService.rememberSpectatorContext(player);
+            Team destination = teamAssignmentService.assignToSmallerTeam(player);
+            player.setGameMode(org.bukkit.GameMode.SURVIVAL);
+            boolean teleported = player.teleport(teamSpawnLocations.get(destination));
+            playerStateTransitions.exitSpectator(player);
+            teamDisplayService.handleTeamSwitch(player);
+
+            if (teleported) {
+                player.sendMessage("You rejoined " + destination.defaultDisplayName() + ".");
+            } else {
+                player.sendMessage("You rejoined " + destination.defaultDisplayName()
+                        + ", but could not be teleported to its spawn.");
+            }
+        } catch (RuntimeException exception) {
+            logger.log(java.util.logging.Level.SEVERE, "Could not rejoin " + player.getName() + " to the siege.", exception);
+            player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
+        }
         return true;
     }
 
@@ -219,6 +299,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             }
             if (sender.hasPermission("siege.kit") && "kit".startsWith(prefix)) {
                 suggestions.add("kit");
+            }
+            if (sender.hasPermission("siege.spectate") && "spectate".startsWith(prefix)) {
+                suggestions.add("spectate");
+            }
+            if (sender.hasPermission("siege.rejoin") && "rejoin".startsWith(prefix)) {
+                suggestions.add("rejoin");
             }
             return suggestions;
         }
