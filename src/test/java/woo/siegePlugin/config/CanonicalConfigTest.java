@@ -88,6 +88,7 @@ class CanonicalConfigTest {
 
         assertEquals(List.of("Towny", "CombatLog"), pluginDescription.getStringList("depend"));
         assertTrue(pluginDescription.getStringList("softdepend").isEmpty());
+        assertTrue(pluginDescription.isConfigurationSection("permissions.siege.admin.resetscores"));
     }
 
     private static YamlConfiguration load(String path) {

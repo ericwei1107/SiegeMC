@@ -21,22 +21,28 @@ public final class MatchScoreDao {
         this.database = Objects.requireNonNull(database, "database");
     }
 
-    /** Recovers an existing match or starts it at zero. */
-    public CompletableFuture<MatchScores> loadOrCreate(String matchId) {
-        Objects.requireNonNull(matchId, "matchId");
+    /** Recovers an existing match or starts it with its declared durable identity. */
+    public CompletableFuture<MatchRecord> loadOrCreate(MatchDefinition definition) {
+        Objects.requireNonNull(definition, "definition");
         return database.submitTransaction(connection -> {
+            long now = System.currentTimeMillis();
             try (PreparedStatement insert = connection.prepareStatement("""
-                    INSERT INTO matches (match_id, red_score, blue_score, created_at, updated_at)
-                    VALUES (?, 0, 0, ?, ?)
+                    INSERT INTO matches (
+                        match_id, status, start_time, capture_point_id, red_score, blue_score, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, 0, 0, ?, ?)
                     ON CONFLICT(match_id) DO NOTHING
                     """)) {
-                long now = System.currentTimeMillis();
-                insert.setString(1, matchId);
-                insert.setLong(2, now);
+                insert.setString(1, definition.matchId());
+                insert.setString(2, definition.status().name());
                 insert.setLong(3, now);
+                insert.setString(4, definition.capturePointId());
+                insert.setLong(5, now);
+                insert.setLong(6, now);
                 insert.executeUpdate();
             }
-            return readScores(connection, matchId);
+            backfillLegacyMetadata(connection, definition);
+            return readMatch(connection, definition.matchId());
         });
     }
 
@@ -44,7 +50,7 @@ public final class MatchScoreDao {
      * Adds points to one team and records why. Returns the totals as persisted,
      * so callers never have to guess at the post-write state.
      */
-    public CompletableFuture<MatchScores> award(String matchId, Team team, long points, ScoreReason reason) {
+    public CompletableFuture<MatchRecord> award(String matchId, Team team, long points, ScoreReason reason) {
         Objects.requireNonNull(matchId, "matchId");
         Objects.requireNonNull(team, "team");
         Objects.requireNonNull(reason, "reason");
@@ -61,7 +67,7 @@ public final class MatchScoreDao {
                 }
             }
             appendLedgerEntry(connection, matchId, team, points, reason);
-            return readScores(connection, matchId);
+            return readMatch(connection, matchId);
         });
     }
 
@@ -69,10 +75,10 @@ public final class MatchScoreDao {
      * Zeroes both totals, ledgering the reversal of each so the audit trail
      * still sums to the stored score.
      */
-    public CompletableFuture<MatchScores> reset(String matchId) {
+    public CompletableFuture<MatchRecord> reset(String matchId) {
         Objects.requireNonNull(matchId, "matchId");
         return database.submitTransaction(connection -> {
-            MatchScores before = readScores(connection, matchId);
+            MatchRecord before = readMatch(connection, matchId);
 
             for (Team team : Team.values()) {
                 long reversal = -before.scoreFor(team);
@@ -90,7 +96,7 @@ public final class MatchScoreDao {
                     throw new SQLException("No match row to reset: " + matchId);
                 }
             }
-            return readScores(connection, matchId);
+            return readMatch(connection, matchId);
         });
     }
 
@@ -130,16 +136,41 @@ public final class MatchScoreDao {
         }
     }
 
-    private static MatchScores readScores(Connection connection, String matchId) throws SQLException {
+    private static void backfillLegacyMetadata(Connection connection, MatchDefinition definition) throws SQLException {
+        try (PreparedStatement update = connection.prepareStatement("""
+                UPDATE matches
+                SET status = CASE WHEN status IS NULL OR TRIM(status) = '' THEN ? ELSE status END,
+                    start_time = CASE WHEN start_time = 0 THEN created_at ELSE start_time END,
+                    capture_point_id = CASE
+                        WHEN capture_point_id IS NULL OR TRIM(capture_point_id) = '' THEN ?
+                        ELSE capture_point_id
+                    END
+                WHERE match_id = ?
+                """)) {
+            update.setString(1, definition.status().name());
+            update.setString(2, definition.capturePointId());
+            update.setString(3, definition.matchId());
+            update.executeUpdate();
+        }
+    }
+
+    private static MatchRecord readMatch(Connection connection, String matchId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT red_score, blue_score FROM matches WHERE match_id = ?"
+                "SELECT status, start_time, capture_point_id, red_score, blue_score FROM matches WHERE match_id = ?"
         )) {
             statement.setString(1, matchId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
                     throw new SQLException("No match row found: " + matchId);
                 }
-                return new MatchScores(matchId, result.getLong("red_score"), result.getLong("blue_score"));
+                return new MatchRecord(
+                        matchId,
+                        MatchStatus.valueOf(result.getString("status")),
+                        java.time.Instant.ofEpochMilli(result.getLong("start_time")),
+                        result.getString("capture_point_id"),
+                        result.getLong("red_score"),
+                        result.getLong("blue_score")
+                );
             }
         }
     }

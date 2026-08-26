@@ -28,3 +28,6 @@ permissions:
   siege.admin:
     description: Use siege administration commands
     default: op
+  siege.admin.resetscores:
+    description: Reset the persistent siege score after confirmation
+    default: op

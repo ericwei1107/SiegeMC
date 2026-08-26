@@ -21,6 +21,7 @@ import java.util.logging.Logger;
 public final class SiegeAdminCommand {
 
     static final String PERMISSION = "siege.admin";
+    static final String RESET_SCORES_PERMISSION = "siege.admin.resetscores";
 
     private static final List<String> SUBCOMMANDS = List.of(
             "setbanner",
@@ -84,7 +85,14 @@ public final class SiegeAdminCommand {
         }
         if (args.length == 2) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
-            return SUBCOMMANDS.stream().filter(name -> name.startsWith(prefix)).toList();
+            return SUBCOMMANDS.stream()
+                    .filter(name -> !name.equals("resetscores") || sender.hasPermission(RESET_SCORES_PERMISSION))
+                    .filter(name -> name.startsWith(prefix))
+                    .toList();
+        }
+        if (args.length == 3 && args[1].equalsIgnoreCase("resetscores")
+                && !sender.hasPermission(RESET_SCORES_PERMISSION)) {
+            return List.of();
         }
         if (args.length == 3 && List.of("resetscores", "savesnapshot").contains(args[1].toLowerCase(Locale.ROOT))) {
             return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
@@ -113,6 +121,10 @@ public final class SiegeAdminCommand {
     }
 
     private boolean handleResetScores(CommandSender sender, String label, String[] args) {
+        if (!sender.hasPermission(RESET_SCORES_PERMISSION)) {
+            sender.sendMessage("You do not have permission to reset siege scores.");
+            return true;
+        }
         if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
             sender.sendMessage("This clears the eternal siege score for both teams and cannot be undone.");
             sender.sendMessage("Run /" + label + " admin resetscores confirm to proceed.");

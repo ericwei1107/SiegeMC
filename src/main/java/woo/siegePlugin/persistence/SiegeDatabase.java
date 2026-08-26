@@ -4,6 +4,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
@@ -167,12 +169,16 @@ public final class SiegeDatabase implements AutoCloseable {
                 statement.execute("""
                         CREATE TABLE IF NOT EXISTS matches (
                             match_id TEXT PRIMARY KEY,
+                            status TEXT NOT NULL,
+                            start_time INTEGER NOT NULL,
+                            capture_point_id TEXT NOT NULL,
                             red_score INTEGER NOT NULL DEFAULT 0,
                             blue_score INTEGER NOT NULL DEFAULT 0,
                             created_at INTEGER NOT NULL,
                             updated_at INTEGER NOT NULL
                         )
                         """);
+                migrateMatchesTable(connection);
                 statement.execute("""
                         CREATE TABLE IF NOT EXISTS score_ledger (
                             entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -205,6 +211,43 @@ public final class SiegeDatabase implements AutoCloseable {
         } catch (Exception exception) {
             closeAfterInitializationFailure(exception);
             throw new CompletionException("Could not initialize the SiegeMC database", exception);
+        }
+    }
+
+    private static void migrateMatchesTable(Connection connection) throws SQLException {
+        if (!hasColumn(connection, "matches", "status")) {
+            executeMigration(connection, "ALTER TABLE matches ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE'");
+        }
+        if (!hasColumn(connection, "matches", "start_time")) {
+            executeMigration(connection, "ALTER TABLE matches ADD COLUMN start_time INTEGER NOT NULL DEFAULT 0");
+        }
+        if (!hasColumn(connection, "matches", "capture_point_id")) {
+            executeMigration(connection, "ALTER TABLE matches ADD COLUMN capture_point_id TEXT NOT NULL DEFAULT ''");
+        }
+        try (PreparedStatement backfillStartTime = connection.prepareStatement("""
+                UPDATE matches
+                SET start_time = created_at
+                WHERE start_time = 0
+                """)) {
+            backfillStartTime.executeUpdate();
+        }
+    }
+
+    private static boolean hasColumn(Connection connection, String table, String column) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet result = statement.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (result.next()) {
+                if (column.equalsIgnoreCase(result.getString("name"))) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    private static void executeMigration(Connection connection, String statementText) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute(statementText);
         }
     }
 

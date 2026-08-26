@@ -6,17 +6,23 @@ package woo.siegePlugin.persistence;
  */
 public enum ScoreReason {
 
-    BANNER_CONTROL("banner_control"),
-    ENEMY_DEATH_BONUS("enemy_death_bonus"),
-    ADMIN_RESET("admin_reset");
+    BANNER_CONTROL("banner_control", true),
+    ENEMY_DEATH_BONUS("enemy_death_bonus", false),
+    ADMIN_RESET("admin_reset", false);
 
     private final String storedValue;
+    private final boolean contributesToSessionPoints;
 
-    ScoreReason(String storedValue) {
+    ScoreReason(String storedValue, boolean contributesToSessionPoints) {
         this.storedValue = storedValue;
+        this.contributesToSessionPoints = contributesToSessionPoints;
     }
 
     public String storedValue() {
         return storedValue;
+    }
+
+    public boolean contributesToSessionPoints() {
+        return contributesToSessionPoints;
     }
 }

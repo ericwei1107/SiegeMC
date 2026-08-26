@@ -6,7 +6,8 @@ import woo.siegePlugin.capture.BannerControlStatus;
 import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.persistence.MatchScoreDao;
-import woo.siegePlugin.persistence.MatchScores;
+import woo.siegePlugin.persistence.MatchDefinition;
+import woo.siegePlugin.persistence.MatchRecord;
 import woo.siegePlugin.persistence.ScoreReason;
 import woo.siegePlugin.team.Team;
 
@@ -32,10 +33,11 @@ public final class ScoringService {
     private final SidebarService sidebarService;
     private final SiegePhaseStatus phaseStatus;
     private final ScoringSettings settings;
+    private final MatchDefinition matchDefinition;
     private final SessionPoints sessionPoints = new SessionPoints();
     private final AtomicBoolean active = new AtomicBoolean(true);
 
-    private MatchScores scores;
+    private MatchRecord scores;
     private BukkitTask task;
 
     public ScoringService(
@@ -44,7 +46,8 @@ public final class ScoringService {
             BannerControlStatus bannerControl,
             SidebarService sidebarService,
             SiegePhaseStatus phaseStatus,
-            ScoringSettings settings
+            ScoringSettings settings,
+            MatchDefinition matchDefinition
     ) {
         this.plugin = plugin;
         this.matchScoreDao = matchScoreDao;
@@ -52,10 +55,11 @@ public final class ScoringService {
         this.sidebarService = sidebarService;
         this.phaseStatus = phaseStatus;
         this.settings = settings;
+        this.matchDefinition = matchDefinition;
     }
 
     public void start() {
-        matchScoreDao.loadOrCreate(MATCH_ID).whenComplete((loaded, failure) ->
+        matchScoreDao.loadOrCreate(matchDefinition).whenComplete((loaded, failure) ->
                 onServerThread(() -> finishStart(loaded, failure))
         );
     }
@@ -69,16 +73,15 @@ public final class ScoringService {
     }
 
     /**
-     * Clears the eternal score and ledgers the reversal. The completion runs on
-     * the server thread.
+     * Clears the eternal score and ledgers the reversal. BAT session points
+     * remain intact because only a new ACTIVE window resets them. The
+     * completion runs on the server thread.
      */
-    public void resetScores(BiConsumer<MatchScores, Throwable> completion) {
+    public void resetScores(BiConsumer<MatchRecord, Throwable> completion) {
         matchScoreDao.reset(MATCH_ID).whenComplete((reset, failure) -> onServerThread(() -> {
             if (failure == null) {
                 scores = reset;
-                sessionPoints.reset();
                 publishScores();
-                publishSessionPoints();
             } else {
                 logScoreFailure("reset", failure);
             }
@@ -86,7 +89,7 @@ public final class ScoringService {
         }));
     }
 
-    private void finishStart(MatchScores loaded, Throwable failure) {
+    private void finishStart(MatchRecord loaded, Throwable failure) {
         if (failure != null) {
             logScoreFailure("load", failure);
             plugin.getLogger().severe("Siege scoring is disabled because " + MATCH_ID + " could not be loaded.");
@@ -145,10 +148,13 @@ public final class ScoringService {
                         logScoreFailure("award", failure);
                         return;
                     }
-                    // Session points follow the persisted total so the sidebar
-                    // never shows points that failed to save.
+                    // Session points follow a successful banner-control write,
+                    // so the sidebar never shows points that failed to save or
+                    // rewards earned for a different reason.
                     scores = updated;
-                    sessionPoints.add(team, points);
+                    if (reason.contributesToSessionPoints()) {
+                        sessionPoints.add(team, points);
+                    }
                     publishScores();
                     publishSessionPoints();
                 })

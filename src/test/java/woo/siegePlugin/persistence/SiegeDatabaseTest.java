@@ -26,7 +26,7 @@ class SiegeDatabaseTest {
     @Test
     void aFailedTransactionRollsBackEveryWriteItAlreadyMade() throws Exception {
         try (SiegeDatabase database = openDatabase()) {
-            await(new MatchScoreDao(database).loadOrCreate("eternal-1"));
+            await(new MatchScoreDao(database).loadOrCreate(MatchDefinition.eternalForWorld("siegeworld")));
 
             assertThrows(ExecutionException.class, () -> await(database.submitTransaction(connection -> {
                 try (PreparedStatement insert = connection.prepareStatement("""
@@ -45,7 +45,7 @@ class SiegeDatabaseTest {
     @Test
     void aCommittedTransactionKeepsItsWrites() throws Exception {
         try (SiegeDatabase database = openDatabase()) {
-            await(new MatchScoreDao(database).loadOrCreate("eternal-1"));
+            await(new MatchScoreDao(database).loadOrCreate(MatchDefinition.eternalForWorld("siegeworld")));
 
             await(database.submitTransaction(connection -> {
                 try (PreparedStatement insert = connection.prepareStatement("""
@@ -80,7 +80,7 @@ class SiegeDatabaseTest {
         Path databasePath = temporaryDirectory.resolve("durable.db");
         try (SiegeDatabase database = new SiegeDatabase(databasePath)) {
             await(database.initialized());
-            await(new MatchScoreDao(database).loadOrCreate("eternal-1"));
+            await(new MatchScoreDao(database).loadOrCreate(MatchDefinition.eternalForWorld("siegeworld")));
         }
 
         try (SiegeDatabase reopened = new SiegeDatabase(databasePath)) {

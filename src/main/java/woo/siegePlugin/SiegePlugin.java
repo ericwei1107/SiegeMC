@@ -40,6 +40,7 @@ import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
 import woo.siegePlugin.persistence.PlayerBalanceDao;
 import woo.siegePlugin.persistence.MatchScoreDao;
+import woo.siegePlugin.persistence.MatchDefinition;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
 import woo.siegePlugin.score.ScoringService;
@@ -139,7 +140,8 @@ public final class SiegePlugin extends JavaPlugin {
                 captureService,
                 sidebarService,
                 phaseStatus,
-                ScoringSettings.fromConfig(getConfig())
+                ScoringSettings.fromConfig(getConfig()),
+                MatchDefinition.eternalForWorld(Objects.requireNonNull(getConfig().getString("capture-point.world")))
         );
         this.currencyService = new CurrencyService(
                 this,
