@@ -50,6 +50,14 @@ public record ArenaRegion(
         return (long) sizeX() * sizeY() * sizeZ();
     }
 
+    /** Returns whether a block coordinate is inside this inclusive arena box. */
+    public boolean contains(String blockWorldName, int x, int y, int z) {
+        return worldName.equals(blockWorldName)
+                && x >= minX && x <= maxX
+                && y >= minY && y <= maxY
+                && z >= minZ && z <= maxZ;
+    }
+
     /**
      * Splits the region into {@value #TILE_SIZE}-cubed tiles. Tiles at the far
      * edges are clipped so the grid covers the region exactly, never more.

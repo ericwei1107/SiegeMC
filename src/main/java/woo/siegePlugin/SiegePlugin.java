@@ -11,6 +11,8 @@ import woo.siegePlugin.arena.ArenaCleanupSettings;
 import woo.siegePlugin.arena.ArenaRegionSettings;
 import woo.siegePlugin.arena.ArenaSnapshotService;
 import woo.siegePlugin.arena.ArenaSnapshotStore;
+import woo.siegePlugin.arena.InMemoryPlacedBlockTracker;
+import woo.siegePlugin.arena.PlacedBlockListener;
 import woo.siegePlugin.arena.PlacedBlockTracker;
 import woo.siegePlugin.capture.CaptureBanner;
 import woo.siegePlugin.capture.CaptureListener;
@@ -79,6 +81,7 @@ public final class SiegePlugin extends JavaPlugin {
     private ArenaSnapshotService arenaSnapshotService;
     private ArenaResetService arenaResetService;
     private ArenaResetScheduler arenaResetScheduler;
+    private PlacedBlockTracker placedBlockTracker;
     private MinecartSweeper minecartSweeper;
     private CurrencyService currencyService;
     private KitService kitService;
@@ -338,6 +341,14 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
+                new PlacedBlockListener(
+                        placedBlockTracker,
+                        townyAdapter,
+                        () -> ArenaRegionSettings.fromConfig(getConfig(), getServer())
+                ),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
                 new SiegeDeathListener(townyAdapter, scoringService, currencyService, phaseStatus),
                 this
         );
@@ -358,12 +369,12 @@ public final class SiegePlugin extends JavaPlugin {
         ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
         ArenaMaintenanceCoordinator maintenance = new ArenaMaintenanceCoordinator();
         this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore, maintenance);
+        this.placedBlockTracker = new InMemoryPlacedBlockTracker();
         this.arenaResetService = new ArenaResetService(
                 this,
                 snapshotStore,
                 captureService,
-                // Stage 4.4i.1 supplies the real placed-block tracker.
-                PlacedBlockTracker.notTrackingYet(),
+                placedBlockTracker,
                 maintenance
         );
         this.arenaResetScheduler = new ArenaResetScheduler(

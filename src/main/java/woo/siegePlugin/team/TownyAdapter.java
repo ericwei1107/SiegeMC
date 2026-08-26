@@ -4,6 +4,7 @@ import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.exceptions.AlreadyRegisteredException;
 import com.palmergames.bukkit.towny.object.Resident;
 import com.palmergames.bukkit.towny.object.Town;
+import org.bukkit.Location;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
@@ -93,6 +94,11 @@ public final class TownyAdapter {
 
     public int getResidentCount(Team team) {
         return getTown(team).getResidents().size();
+    }
+
+    /** True only for unclaimed Towny wilderness, never for either protected base. */
+    public boolean isWilderness(Location location) {
+        return townyApi.isWilderness(location);
     }
 
     public void setPlayerTeam(Player player, Team team) {

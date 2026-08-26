@@ -1,16 +1,15 @@
 package woo.siegePlugin.arena;
 
-/**
- * Tracking of player-placed battlefield blocks. Stage 4.4i.1 supplies the real
- * implementation; resets only need to know how to forget everything.
- */
-@FunctionalInterface
+import org.bukkit.block.Block;
+
+/** In-memory tracking of player-placed battlefield blocks for one reset window. */
 public interface PlacedBlockTracker {
 
-    void clearAll();
+    void record(Block block);
 
-    static PlacedBlockTracker notTrackingYet() {
-        return () -> {
-        };
-    }
+    boolean contains(Block block);
+
+    boolean remove(Block block);
+
+    void clearAll();
 }
