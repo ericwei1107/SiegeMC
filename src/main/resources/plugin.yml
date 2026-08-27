@@ -10,7 +10,7 @@ depend: [Towny, CombatLog, Multiverse-Core]
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|resetscores|break [seconds]|resume|setresetpos1|setresetpos2|savesnapshot|resetmap>>
+    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|resetscores|break [seconds]|resume|setresetpos1|setresetpos2|savesnapshot|savekit|resetmap>>
 
 permissions:
   siege.team:
@@ -23,7 +23,7 @@ permissions:
     description: Open the siege shop
     default: true
   siege.kit:
-    description: Edit your persistent siege kit
+    description: Receive the configured siege kit
     default: true
   siege.spectate:
     description: Enter siege spectator mode
@@ -42,4 +42,7 @@ permissions:
     default: op
   siege.admin.resetscores:
     description: Reset the persistent siege score after confirmation
+    default: op
+  siege.minecart.cooldown.bypass:
+    description: Bypass the TNT minecart placement cooldown
     default: op

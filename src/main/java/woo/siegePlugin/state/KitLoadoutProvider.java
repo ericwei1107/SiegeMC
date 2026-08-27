@@ -9,9 +9,7 @@ public interface KitLoadoutProvider {
 
     void apply(Player player);
 
-    /**
-     * Stage 4.4k replaces this with the player's saved kit loadout.
-     */
+    /** Empty fallback used by transition-service tests and disabled kit contexts. */
     static KitLoadoutProvider empty() {
         return player -> PlayerInventorySnapshot.clear(
                 Objects.requireNonNull(player, "player").getInventory()

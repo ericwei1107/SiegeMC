@@ -22,8 +22,15 @@ import woo.siegePlugin.config.CanonicalConfig;
 import woo.siegePlugin.command.SiegeAdminCommand;
 import woo.siegePlugin.command.SiegeCommand;
 import woo.siegePlugin.minecart.MinecartPlacementListener;
+import woo.siegePlugin.minecart.MinecartCooldownService;
+import woo.siegePlugin.minecart.MinecartDamageListener;
+import woo.siegePlugin.minecart.MinecartDamageSettings;
+import woo.siegePlugin.minecart.MinecartArenaProtection;
 import woo.siegePlugin.minecart.MinecartSettings;
 import woo.siegePlugin.minecart.MinecartSweeper;
+import woo.siegePlugin.minecart.MinecartTerrainProtectionListener;
+import woo.siegePlugin.minecart.MinecartWorldCompatibility;
+import woo.siegePlugin.minecart.SiegeMinecartMarker;
 import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.combat.CombatTagStatus;
 import woo.siegePlugin.display.TeamDisplayListener;
@@ -37,9 +44,10 @@ import woo.siegePlugin.cycle.ActivityCycleService;
 import woo.siegePlugin.cycle.SiegePhase;
 import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.kit.KitEditorListener;
-import woo.siegePlugin.kit.KitProfile;
+import woo.siegePlugin.kit.KitCommandCooldown;
+import woo.siegePlugin.kit.KitCommandSettings;
 import woo.siegePlugin.kit.KitService;
-import woo.siegePlugin.persistence.KitLoadoutDao;
+import woo.siegePlugin.kit.KitSnapshot;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
@@ -85,6 +93,9 @@ public final class SiegePlugin extends JavaPlugin {
     private ArenaResetScheduler arenaResetScheduler;
     private PlacedBlockTracker placedBlockTracker;
     private MinecartSweeper minecartSweeper;
+    private SiegeMinecartMarker siegeMinecartMarker;
+    private MinecartCooldownService minecartCooldownService;
+    private MinecartArenaProtection minecartArenaProtection;
     private CurrencyService currencyService;
     private KitService kitService;
     private KitEditorListener kitEditorListener;
@@ -164,11 +175,15 @@ public final class SiegePlugin extends JavaPlugin {
         activityCycleService.setPhaseChangeListener(this::handlePhaseChange);
         // A boot is the first ACTIVE window, so BAT points begin explicitly at zero.
         scoringService.beginActiveWindow();
+        MinecartSettings minecartSettings = MinecartSettings.fromConfig(getConfig());
+        this.siegeMinecartMarker = new SiegeMinecartMarker(this);
+        this.minecartCooldownService = new MinecartCooldownService(minecartSettings.tntPlacementCooldown());
         this.currencyService = new CurrencyService(
                 this,
                 new PlayerBalanceDao(database),
                 new PurchaseOutboxDao(database),
-                CurrencySettings.fromConfig(getConfig())
+                CurrencySettings.fromConfig(getConfig()),
+                siegeMinecartMarker
         );
         scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTick);
         initializeArenaMaintenance();
@@ -188,6 +203,7 @@ public final class SiegePlugin extends JavaPlugin {
             getLogger().warning("No arena snapshot exists, so /siege admin resetmap is DISABLED.");
             getLogger().warning("Run /siege admin setresetpos1, setresetpos2, then savesnapshot confirm");
             getLogger().warning("while the battlefield is clean.");
+            getLogger().warning("Tagged siege TNT minecart placement is blocked until that snapshot exists.");
             getLogger().warning("=====================================================================");
         }
 
@@ -270,8 +286,11 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(ArenaCleanupSettings.findConfigurationProblems(config));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
+        problems.addAll(MinecartDamageSettings.findConfigurationProblems(config));
+        problems.addAll(MinecartWorldCompatibility.findProblems(config, getServer()));
         problems.addAll(CurrencySettings.findConfigurationProblems(config));
-        problems.addAll(KitProfile.findConfigurationProblems(config));
+        problems.addAll(KitCommandSettings.findConfigurationProblems(config));
+        problems.addAll(KitSnapshot.findRuntimeConfigurationProblems(config));
         problems.addAll(LobbySettings.findConfigurationProblems(config, getServer()));
         problems.addAll(CanonicalConfig.findConfigurationProblems(config));
 
@@ -313,6 +332,7 @@ public final class SiegePlugin extends JavaPlugin {
                         arenaSnapshotService,
                         arenaResetService,
                         activityCycleService,
+                        kitService,
                         getLogger()
                 ),
                 currencyService,
@@ -373,7 +393,25 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(kitEditorListener, this);
         getServer().getPluginManager().registerEvents(
                 new MinecartPlacementListener(
-                        MinecartSettings.fromConfig(getConfig()).tntPlacementCooldown()
+                        siegeMinecartMarker,
+                        minecartCooldownService,
+                        minecartArenaProtection
+                ),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new MinecartTerrainProtectionListener(siegeMinecartMarker, minecartArenaProtection),
+                this
+        );
+        CaptureSettings captureSettings = CaptureSettings.fromConfig(getConfig());
+        getServer().getPluginManager().registerEvents(
+                new MinecartDamageListener(
+                        this,
+                        siegeMinecartMarker,
+                        townyAdapter,
+                        captureService.banner(),
+                        captureSettings.radiusBlocks(),
+                        MinecartDamageSettings.fromConfig(getConfig())
                 ),
                 this
         );
@@ -382,7 +420,9 @@ public final class SiegePlugin extends JavaPlugin {
     private void initializeArenaMaintenance() {
         ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
         ArenaMaintenanceCoordinator maintenance = new ArenaMaintenanceCoordinator();
+        this.minecartArenaProtection = new MinecartArenaProtection(snapshotStore.loadRegion());
         this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore, maintenance);
+        arenaSnapshotService.setSnapshotSavedHandler(minecartArenaProtection::update);
         this.placedBlockTracker = new InMemoryPlacedBlockTracker();
         this.arenaResetService = new ArenaResetService(
                 this,
@@ -408,10 +448,12 @@ public final class SiegePlugin extends JavaPlugin {
         this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
         this.kitService = new KitService(
                 this,
-                new KitLoadoutDao(database),
-                KitProfile.fromConfig(getConfig())
+                KitSnapshot.fromConfig(getConfig())
         );
-        this.kitEditorListener = new KitEditorListener(kitService);
+        this.kitEditorListener = new KitEditorListener(
+                kitService,
+                new KitCommandCooldown(KitCommandSettings.fromConfig(getConfig()).cooldown())
+        );
         this.playerStateTransitionService = new PlayerStateTransitionService(
                 this,
                 new PlayerInventoryDao(database),

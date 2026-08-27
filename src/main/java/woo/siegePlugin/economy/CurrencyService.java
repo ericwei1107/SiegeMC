@@ -5,6 +5,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.persistence.PlayerBalanceDao;
 import woo.siegePlugin.persistence.PurchaseOutboxDao;
+import woo.siegePlugin.minecart.SiegeMinecartMarker;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -29,6 +30,7 @@ public final class CurrencyService {
     private final PlayerBalanceDao balanceDao;
     private final PurchaseOutboxDao purchaseOutbox;
     private final CurrencySettings settings;
+    private final SiegeMinecartMarker minecartMarker;
     private final Map<UUID, Long> cachedBalances = new HashMap<>();
     private final Set<UUID> purchasesInFlight = new HashSet<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
@@ -38,12 +40,14 @@ public final class CurrencyService {
             JavaPlugin plugin,
             PlayerBalanceDao balanceDao,
             PurchaseOutboxDao purchaseOutbox,
-            CurrencySettings settings
+            CurrencySettings settings,
+            SiegeMinecartMarker minecartMarker
     ) {
         this.plugin = plugin;
         this.balanceDao = balanceDao;
         this.purchaseOutbox = purchaseOutbox;
         this.settings = settings;
+        this.minecartMarker = minecartMarker;
     }
 
     public void shutdown() {
@@ -152,6 +156,9 @@ public final class CurrencyService {
         }
 
         ItemStack item = bundle.createItem();
+        if (bundle == ShopBundle.TNT_MINECART) {
+            minecartMarker.mark(item);
+        }
         if (!InventorySpace.hasRoomFor(player.getInventory(), item)) {
             purchasesInFlight.remove(playerId);
             outcome.accept(PurchaseOutcome.NO_INVENTORY_SPACE);

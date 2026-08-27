@@ -45,9 +45,10 @@ public final class KitItems {
         ItemStack stack = new ItemStack(material, spec.amount());
         for (Map.Entry<String, Integer> entry : spec.enchantments().entrySet()) {
             Enchantment enchantment = enchantmentByName(entry.getKey());
-            if (enchantment != null) {
-                stack.addUnsafeEnchantment(enchantment, entry.getValue());
+            if (enchantment == null) {
+                throw new IllegalArgumentException("Unknown enchantment: " + entry.getKey());
             }
+            stack.addUnsafeEnchantment(enchantment, entry.getValue());
         }
 
         if (spec.potionType() != null && stack.getItemMeta() instanceof PotionMeta potionMeta) {

@@ -116,4 +116,15 @@ class ArenaRegionTest {
     void rejectsZeroSizedTiles() {
         assertThrows(IllegalArgumentException.class, () -> new ArenaTile(0, 0, 0, 0, 16, 16));
     }
+
+    @Test
+    void footprintContainsEveryHeightInsideTheXZBounds() {
+        ArenaRegion region = ArenaRegion.between("siegeworld", -10, -60, -20, 10, 100, 20);
+
+        assertTrue(region.containsFootprint("siegeworld", -10, -20));
+        assertTrue(region.containsFootprint("siegeworld", 10, 20));
+        assertTrue(region.containsFootprint("siegeworld", 0, 0));
+        assertEquals(false, region.containsFootprint("siegeworld", 11, 0));
+        assertEquals(false, region.containsFootprint("other", 0, 0));
+    }
 }

@@ -10,6 +10,8 @@ import woo.siegePlugin.arena.ArenaResetService;
 import woo.siegePlugin.arena.ArenaSnapshotService;
 import woo.siegePlugin.capture.CaptureService;
 import woo.siegePlugin.cycle.ActivityCycleService;
+import woo.siegePlugin.kit.KitService;
+import woo.siegePlugin.kit.KitSnapshot;
 import woo.siegePlugin.score.ScoringService;
 
 import java.util.List;
@@ -33,6 +35,7 @@ public final class SiegeAdminCommand {
             "setresetpos1",
             "setresetpos2",
             "savesnapshot",
+            "savekit",
             "resetmap"
     );
 
@@ -42,6 +45,7 @@ public final class SiegeAdminCommand {
     private final ArenaSnapshotService snapshotService;
     private final ArenaResetService resetService;
     private final ActivityCycleService activityCycleService;
+    private final KitService kitService;
     private final Logger logger;
 
     public SiegeAdminCommand(
@@ -51,6 +55,7 @@ public final class SiegeAdminCommand {
             ArenaSnapshotService snapshotService,
             ArenaResetService resetService,
             ActivityCycleService activityCycleService,
+            KitService kitService,
             Logger logger
     ) {
         this.plugin = plugin;
@@ -59,6 +64,7 @@ public final class SiegeAdminCommand {
         this.snapshotService = snapshotService;
         this.resetService = resetService;
         this.activityCycleService = activityCycleService;
+        this.kitService = kitService;
         this.logger = logger;
     }
 
@@ -80,6 +86,7 @@ public final class SiegeAdminCommand {
             case "setresetpos1" -> handleSetResetCorner(sender, "pos1");
             case "setresetpos2" -> handleSetResetCorner(sender, "pos2");
             case "savesnapshot" -> handleSaveSnapshot(sender, label, args);
+            case "savekit" -> handleSaveKit(sender, label, args);
             case "resetmap" -> handleResetMap(sender);
             default -> {
                 sendUsage(sender, label);
@@ -103,7 +110,9 @@ public final class SiegeAdminCommand {
                 && !sender.hasPermission(RESET_SCORES_PERMISSION)) {
             return List.of();
         }
-        if (args.length == 3 && List.of("resetscores", "savesnapshot").contains(args[1].toLowerCase(Locale.ROOT))) {
+        if (args.length == 3
+                && List.of("resetscores", "savesnapshot", "savekit")
+                .contains(args[1].toLowerCase(Locale.ROOT))) {
             return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
         }
         return List.of();
@@ -243,6 +252,30 @@ public final class SiegeAdminCommand {
         }
 
         snapshotService.capture(arena, sender::sendMessage);
+        return true;
+    }
+
+    private boolean handleSaveKit(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can capture the default siege kit.");
+            return true;
+        }
+        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
+            sender.sendMessage("This replaces the server-wide siege kit with your CURRENT inventory, armor, and offhand.");
+            sender.sendMessage("Run /" + label + " admin savekit confirm to proceed.");
+            return true;
+        }
+
+        try {
+            KitSnapshot snapshot = KitSnapshot.fromInventory(player.getInventory());
+            snapshot.saveToConfig(plugin.getConfig());
+            plugin.saveConfig();
+            kitService.replaceSnapshot(snapshot);
+            logger.info("Default siege kit snapshot replaced by " + player.getName() + ".");
+            player.sendMessage("Default siege kit saved and activated. Use /siege kit to verify it.");
+        } catch (IllegalArgumentException exception) {
+            player.sendMessage("The default siege kit was not saved: " + exception.getMessage());
+        }
         return true;
     }
 

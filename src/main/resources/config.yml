@@ -57,6 +57,11 @@ cleanup:
   minecart-stationary-cleanup-seconds: 300
   minecart-placement-cooldown-seconds: 30
 
+minecart:
+  damage:
+    balanced-coefficient: 0.825
+    full-damage-deficit: 7
+
 sidebar:
   title: "Siege Status"
 
@@ -78,15 +83,110 @@ shop:
     tnt-minecart: 0
 
 kit:
-  # Bundle contents and enchantments are fixed; only the caps are editable.
-  caps:
-    EXPERIENCE_BOTTLE: 16
-    BAKED_POTATO: 32
-    SPLASH_POTION:
-      STRONG_HEALING: 4
-    POTION:
-      STRONG_SWIFTNESS: 2
-      STRONG_STRENGTH: 2
+  # Applies after a successful /siege kit. Set to 0 to disable.
+  command-cooldown-seconds: 300
+
+  # This exact snapshot replaces a player's whole inventory when /siege kit
+  # runs and whenever the normal siege lifecycle reapplies their kit.
+  #
+  # Slot map:
+  #   0-8   hotbar
+  #   9-35  main inventory
+  #   36    boots
+  #   37    leggings
+  #   38    chestplate
+  #   39    helmet
+  #   40    offhand
+  #
+  # Add, remove, or reorder entries freely. Material and potion names use
+  # Paper's enum names. Enchantment names are case-insensitive.
+  default-loadout:
+    slots:
+      0:
+        material: NETHERITE_SWORD
+        amount: 1
+        enchantments:
+          SHARPNESS: 5
+          UNBREAKING: 3
+          MENDING: 1
+      1:
+        material: DIAMOND_AXE
+        amount: 1
+        enchantments:
+          EFFICIENCY: 5
+          UNBREAKING: 3
+      2:
+        material: EXPERIENCE_BOTTLE
+        amount: 16
+      3:
+        material: BAKED_POTATO
+        amount: 32
+      4:
+        material: SPLASH_POTION
+        amount: 1
+        potion-type: STRONG_HEALING
+      5:
+        material: SPLASH_POTION
+        amount: 1
+        potion-type: STRONG_HEALING
+      6:
+        material: SPLASH_POTION
+        amount: 1
+        potion-type: STRONG_HEALING
+      7:
+        material: SPLASH_POTION
+        amount: 1
+        potion-type: STRONG_HEALING
+      8:
+        material: POTION
+        amount: 1
+        potion-type: STRONG_SWIFTNESS
+      9:
+        material: POTION
+        amount: 1
+        potion-type: STRONG_SWIFTNESS
+      10:
+        material: POTION
+        amount: 1
+        potion-type: STRONG_STRENGTH
+      11:
+        material: POTION
+        amount: 1
+        potion-type: STRONG_STRENGTH
+      36:
+        material: NETHERITE_BOOTS
+        amount: 1
+        enchantments:
+          PROTECTION: 4
+          UNBREAKING: 3
+          FEATHER_FALLING: 4
+          MENDING: 1
+      37:
+        material: NETHERITE_LEGGINGS
+        amount: 1
+        enchantments:
+          PROTECTION: 4
+          UNBREAKING: 3
+          MENDING: 1
+      38:
+        material: NETHERITE_CHESTPLATE
+        amount: 1
+        enchantments:
+          PROTECTION: 4
+          UNBREAKING: 3
+          MENDING: 1
+      39:
+        material: NETHERITE_HELMET
+        amount: 1
+        enchantments:
+          PROTECTION: 4
+          UNBREAKING: 3
+          MENDING: 1
+      40:
+        material: SHIELD
+        amount: 1
+        enchantments:
+          UNBREAKING: 3
 
 # Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
 # Resets stay disabled until a snapshot exists.

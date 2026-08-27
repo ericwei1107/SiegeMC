@@ -8,7 +8,9 @@ import woo.siegePlugin.cycle.ActivityCycleSettings;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopBundle;
 import woo.siegePlugin.minecart.MinecartSettings;
-import woo.siegePlugin.kit.KitProfile;
+import woo.siegePlugin.minecart.MinecartDamageSettings;
+import woo.siegePlugin.kit.KitSnapshot;
+import woo.siegePlugin.kit.KitCommandSettings;
 import woo.siegePlugin.score.ScoringSettings;
 
 import java.io.File;
@@ -54,6 +56,10 @@ class CanonicalConfigTest {
         assertEquals(Duration.ofSeconds(30), minecarts.tntPlacementCooldown());
         assertEquals(Duration.ofSeconds(300), minecarts.stationaryCleanupThreshold());
 
+        MinecartDamageSettings minecartDamage = MinecartDamageSettings.fromConfig(config);
+        assertEquals(0.825D, minecartDamage.balancedCoefficient());
+        assertEquals(7, minecartDamage.fullDamageDeficit());
+
         CurrencySettings currency = CurrencySettings.fromConfig(config);
         assertEquals(0L, currency.perKill());
         assertEquals(0L, currency.perCaptureTick());
@@ -61,12 +67,15 @@ class CanonicalConfigTest {
             assertEquals(0L, currency.priceOf(bundle), bundle + " price is not an untuned placeholder");
         }
 
-        KitProfile kit = KitProfile.fromConfig(config);
-        assertEquals(32, kit.allowanceFor("BAKED_POTATO").orElseThrow().maxTotal());
-        assertEquals(4, kit.allowanceForKey("SPLASH_POTION:STRONG_HEALING").orElseThrow().maxTotal());
-        assertEquals(2, kit.allowanceForKey("POTION:STRONG_SWIFTNESS").orElseThrow().maxTotal());
-        assertEquals(2, kit.allowanceForKey("POTION:STRONG_STRENGTH").orElseThrow().maxTotal());
-        assertTrue(KitProfile.findConfigurationProblems(config).isEmpty());
+        KitSnapshot kit = KitSnapshot.fromConfig(config);
+        assertEquals(Duration.ofMinutes(5), KitCommandSettings.fromConfig(config).cooldown());
+        assertEquals(17, kit.slots().size());
+        assertEquals("NETHERITE_SWORD", kit.slots().get(0).material());
+        assertEquals(32, kit.slots().get(3).amount());
+        assertEquals("STRONG_HEALING", kit.slots().get(4).potionType());
+        assertEquals("NETHERITE_BOOTS", kit.slots().get(36).material());
+        assertEquals("SHIELD", kit.slots().get(40).material());
+        assertTrue(KitSnapshot.findConfigurationProblems(config).isEmpty());
 
         assertTrue(CanonicalConfig.findConfigurationProblems(config).isEmpty());
     }
@@ -103,6 +112,7 @@ class CanonicalConfigTest {
         );
         assertTrue(pluginDescription.getStringList("softdepend").isEmpty());
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.admin.resetscores"));
+        assertTrue(pluginDescription.isConfigurationSection("permissions.siege.minecart.cooldown.bypass"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.spectate"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.rejoin"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.join"));

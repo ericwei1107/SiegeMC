@@ -25,6 +25,7 @@ public final class ArenaSnapshotService {
 
     private BukkitTask task;
     private ArenaSnapshotStore replacementStore;
+    private Consumer<ArenaRegion> snapshotSavedHandler = ignored -> { };
 
     public ArenaSnapshotService(
             JavaPlugin plugin,
@@ -38,6 +39,11 @@ public final class ArenaSnapshotService {
 
     public boolean isCapturing() {
         return task != null;
+    }
+
+    /** Receives the newly-active region only after atomic snapshot promotion. */
+    public void setSnapshotSavedHandler(Consumer<ArenaRegion> snapshotSavedHandler) {
+        this.snapshotSavedHandler = snapshotSavedHandler;
     }
 
     public void stop() {
@@ -124,6 +130,7 @@ public final class ArenaSnapshotService {
         }
 
         maintenance.finishCapture();
+        snapshotSavedHandler.accept(region);
 
         plugin.getLogger().info("Arena snapshot complete: " + tileCount + " tiles.");
         feedback.accept("Arena snapshot saved. Map resets are now enabled.");

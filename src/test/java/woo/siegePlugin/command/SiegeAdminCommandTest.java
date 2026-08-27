@@ -38,8 +38,19 @@ class SiegeAdminCommandTest {
         );
     }
 
+    @Test
+    void saveKitOffersConfirmationCompletion() {
+        SiegeAdminCommand command = command();
+        CommandSender sender = sender(true, true, new ArrayList<>());
+
+        assertEquals(
+                List.of("confirm"),
+                command.tabComplete(sender, new String[]{"admin", "savekit", "c"})
+        );
+    }
+
     private static SiegeAdminCommand command() {
-        return new SiegeAdminCommand(null, null, null, null, null, null, Logger.getAnonymousLogger());
+        return new SiegeAdminCommand(null, null, null, null, null, null, null, Logger.getAnonymousLogger());
     }
 
     private static CommandSender sender(boolean admin, boolean resetScores, List<String> messages) {

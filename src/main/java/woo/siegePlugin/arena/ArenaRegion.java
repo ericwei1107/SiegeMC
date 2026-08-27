@@ -59,6 +59,17 @@ public record ArenaRegion(
     }
 
     /**
+     * Returns whether X/Z lies inside the arena at any height. Stage 4.5 uses
+     * this footprint so towers and elevated player blocks receive the same
+     * explosion protection as the arena floor.
+     */
+    public boolean containsFootprint(String blockWorldName, int x, int z) {
+        return worldName.equals(blockWorldName)
+                && x >= minX && x <= maxX
+                && z >= minZ && z <= maxZ;
+    }
+
+    /**
      * Splits the region into {@value #TILE_SIZE}-cubed tiles. Tiles at the far
      * edges are clipped so the grid covers the region exactly, never more.
      */

@@ -201,15 +201,15 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
 
     private boolean handleKit(CommandSender sender) {
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can edit their siege kit.");
+            sender.sendMessage("Only a player can receive the siege kit.");
             return true;
         }
         if (!player.hasPermission("siege.kit")) {
-            player.sendMessage("You do not have permission to edit your siege kit.");
+            player.sendMessage("You do not have permission to receive the siege kit.");
             return true;
         }
 
-        kitEditorListener.open(player);
+        kitEditorListener.equip(player);
         return true;
     }
 

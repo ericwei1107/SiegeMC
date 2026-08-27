@@ -1,65 +1,120 @@
 package woo.siegePlugin.minecart;
 
 import org.bukkit.Material;
-import org.bukkit.Tag;
-import org.bukkit.block.Block;
+import org.bukkit.entity.minecart.ExplosiveMinecart;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
-import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.entity.EntityDropItemEvent;
+import org.bukkit.event.entity.EntityPlaceEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.inventory.ItemStack;
 
 import java.time.Duration;
 
 /**
- * Rate-limits TNT minecart placement.
- *
- * <p>Placement is caught as a rail right-click because Bukkit has no
- * player-attributed minecart placement event.</p>
+ * Applies the TNT-minecart cooldown only to confirmed entity placements and
+ * transfers the siege-shop marker between item and entity forms.
  */
 public final class MinecartPlacementListener implements Listener {
 
-    private final int cooldownTicks;
+    public static final String BYPASS_PERMISSION = "siege.minecart.cooldown.bypass";
 
-    public MinecartPlacementListener(Duration cooldown) {
-        this.cooldownTicks = cooldownTicks(cooldown);
+    private final SiegeMinecartMarker marker;
+    private final MinecartCooldownService cooldowns;
+    private final MinecartArenaProtection arenaProtection;
+
+    public MinecartPlacementListener(
+            SiegeMinecartMarker marker,
+            MinecartCooldownService cooldowns,
+            MinecartArenaProtection arenaProtection
+    ) {
+        this.marker = marker;
+        this.cooldowns = cooldowns;
+        this.arenaProtection = arenaProtection;
     }
 
-    @EventHandler(ignoreCancelled = true)
-    public void onPlaceTntMinecart(PlayerInteractEvent event) {
-        if (event.getHand() != EquipmentSlot.HAND) {
+    /** Cancels before the successful-placement monitor observes the event. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlaceAttempt(EntityPlaceEvent event) {
+        if (!(event.getEntity() instanceof ExplosiveMinecart)) {
             return;
-        }
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK) {
-            return;
-        }
-        if (event.getItem() == null || event.getItem().getType() != Material.TNT_MINECART) {
-            return;
-        }
-
-        Block clicked = event.getClickedBlock();
-        if (clicked == null || !Tag.RAILS.isTagged(clicked.getType())) {
-            return; // No rail means no cart would have been created.
         }
 
         Player player = event.getPlayer();
-        if (player.hasCooldown(Material.TNT_MINECART)) {
-            event.setCancelled(true);
-            player.sendMessage("You must wait before placing another TNT minecart.");
+        if (player == null) {
             return;
         }
-        player.setCooldown(Material.TNT_MINECART, cooldownTicks);
+
+        ItemStack usedItem = player.getInventory().getItem(event.getHand());
+        if (marker.isMarked(usedItem) && !arenaProtection.isReady()) {
+            event.setCancelled(true);
+            player.sendMessage("Siege TNT minecarts are unavailable until an administrator saves an arena snapshot.");
+            return;
+        }
+
+        if (player.hasPermission(BYPASS_PERMISSION)) {
+            return;
+        }
+        if (!cooldowns.isActive(player.getUniqueId()) && !player.hasCooldown(Material.TNT_MINECART)) {
+            return;
+        }
+
+        event.setCancelled(true);
+        player.sendMessage("You must wait before placing another TNT minecart.");
+    }
+
+    /** Cancelled or failed placements never reach this handler. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onSuccessfulPlacement(EntityPlaceEvent event) {
+        if (!(event.getEntity() instanceof ExplosiveMinecart minecart)) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        if (player == null) {
+            return;
+        }
+
+        ItemStack usedItem = player.getInventory().getItem(event.getHand());
+        if (marker.isMarked(usedItem)) {
+            marker.mark(minecart);
+        }
+
+        if (!player.hasPermission(BYPASS_PERMISSION)) {
+            player.setCooldown(Material.TNT_MINECART, cooldowns.start(player.getUniqueId()));
+        }
+    }
+
+    /** A broken siege cart must not turn back into an untagged bypass item. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onTaggedCartDrop(EntityDropItemEvent event) {
+        if (!(event.getEntity() instanceof ExplosiveMinecart minecart) || !marker.isMarked(minecart)) {
+            return;
+        }
+
+        ItemStack drop = event.getItemDrop().getItemStack();
+        if (drop.getType() == Material.TNT_MINECART) {
+            marker.mark(drop);
+            event.getItemDrop().setItemStack(drop);
+        }
+    }
+
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        if (player.hasPermission(BYPASS_PERMISSION)) {
+            return;
+        }
+
+        int remainingTicks = cooldowns.remainingTicks(player.getUniqueId());
+        if (remainingTicks > 0) {
+            player.setCooldown(Material.TNT_MINECART, remainingTicks);
+        }
     }
 
     static int cooldownTicks(Duration cooldown) {
-        if (cooldown.isNegative()) {
-            throw new IllegalArgumentException("cooldown cannot be negative");
-        }
-        try {
-            return Math.toIntExact(Math.multiplyExact(cooldown.toSeconds(), 20L));
-        } catch (ArithmeticException exception) {
-            throw new IllegalArgumentException("cooldown is too large", exception);
-        }
+        return MinecartCooldownService.cooldownTicks(cooldown);
     }
 }
