@@ -14,7 +14,7 @@ teams:
       y: -51.84795199653818
       z: 103.97480126649488
   blue:
-    town: "teamBlue"
+    town: "teamBlue_"
     display-name: "Blue Team"
     color: "BLUE"
     spawn:
