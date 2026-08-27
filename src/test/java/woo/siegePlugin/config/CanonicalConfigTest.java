@@ -25,7 +25,7 @@ class CanonicalConfigTest {
         YamlConfiguration config = load("src/main/resources/config.yml");
 
         assertEquals("teamRed", config.getString("teams.red.town"));
-        assertEquals("teamBlue_", config.getString("teams.blue.town"));
+        assertEquals("teamBlue", config.getString("teams.blue.town"));
         assertEquals("SpectatorTown", config.getString("spectator.town"));
         assertEquals("lobby", config.getString("lobby.world"));
         assertEquals(16.0D, config.getDouble("lobby.spawn.x"));
