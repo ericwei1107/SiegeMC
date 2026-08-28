@@ -44,6 +44,7 @@ import woo.siegePlugin.cycle.ActivityCycleSettings;
 import woo.siegePlugin.cycle.ActivityCycleService;
 import woo.siegePlugin.cycle.SiegePhase;
 import woo.siegePlugin.death.SiegeDeathListener;
+import woo.siegePlugin.kit.KitChoiceCatalog;
 import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.kit.KitCommandCooldown;
 import woo.siegePlugin.kit.KitCommandSettings;
@@ -56,6 +57,7 @@ import woo.siegePlugin.persistence.PlayerBalanceDao;
 import woo.siegePlugin.persistence.PurchaseOutboxDao;
 import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.MatchDefinition;
+import woo.siegePlugin.persistence.KitSelectionDao;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
 import woo.siegePlugin.score.ScoringService;
@@ -241,6 +243,9 @@ public final class SiegePlugin extends JavaPlugin {
         }
         if (currencyService != null) {
             currencyService.shutdown();
+        }
+        if (kitEditorListener != null) {
+            kitEditorListener.shutdown();
         }
         if (kitService != null) {
             kitService.shutdown();
@@ -463,9 +468,20 @@ public final class SiegePlugin extends JavaPlugin {
 
     private void initializePlayerStateTransitions(CombatTagStatus combatTagStatus) {
         this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
+        KitSnapshot kitSnapshot = KitSnapshot.fromConfig(getConfig());
+        KitChoiceCatalog.LoadResult structuralCatalog = KitChoiceCatalog.load(getConfig(), kitSnapshot);
+        for (String problem : structuralCatalog.problems()) {
+            getLogger().warning("Disabled kit editor group: " + problem);
+        }
+        KitChoiceCatalog.LoadResult choiceCatalog = structuralCatalog.catalog().validateRuntime(kitSnapshot);
+        for (String problem : choiceCatalog.problems()) {
+            getLogger().warning("Disabled kit editor group: " + problem);
+        }
         this.kitService = new KitService(
                 this,
-                KitSnapshot.fromConfig(getConfig())
+                kitSnapshot,
+                choiceCatalog.catalog(),
+                new KitSelectionDao(database)
         );
         this.kitEditorListener = new KitEditorListener(
                 kitService,

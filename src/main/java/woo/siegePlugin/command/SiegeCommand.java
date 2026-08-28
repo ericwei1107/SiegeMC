@@ -209,7 +209,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        kitEditorListener.equip(player);
+        kitEditorListener.open(player);
         return true;
     }
 

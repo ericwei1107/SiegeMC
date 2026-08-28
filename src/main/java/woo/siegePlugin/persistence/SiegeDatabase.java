@@ -201,6 +201,15 @@ public final class SiegeDatabase implements AutoCloseable {
                         )
                         """);
                 statement.execute("""
+                        CREATE TABLE IF NOT EXISTS kit_loadout_choices (
+                            player_uuid TEXT NOT NULL,
+                            slot INTEGER NOT NULL,
+                            choice_key TEXT NOT NULL,
+                            updated_at INTEGER NOT NULL,
+                            PRIMARY KEY (player_uuid, slot)
+                        )
+                        """);
+                statement.execute("""
                         CREATE TABLE IF NOT EXISTS player_balances (
                             player_uuid TEXT PRIMARY KEY,
                             balance INTEGER NOT NULL DEFAULT 0,

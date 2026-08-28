@@ -193,7 +193,9 @@ The editor exposes only configurable supply slots. Armor, the primary sword, and
 
 The main editor provides Save & Equip, Reset Draft to Default, and Cancel Without Saving. Save & Equip reconstructs the full kit from trusted configured choices, merges the current default essentials, validates and persists it, closes the GUI, and immediately equips it. If persistence fails, the previous saved kit remains authoritative and no partial kit is equipped.
 
-Reuse `KitSnapshot`, `KitProfile`, `KitItemSpec`, `KitSlotKind`, `KitValidator`, `KitLoadoutDao`, and the edit-session concept. Replace the old/dormant GUI workflow with an explicit launcher/editor/choice/saving state machine so close events, repeated clicks, disconnects, and asynchronous saves cannot lose or partially apply a selection.
+Implementation now uses `KitSnapshot`, `KitItemSpec`, `KitSlotKind`, and an exact-reconstruction `KitValidator`, plus normalized configured-choice IDs in `kit_loadout_choices`. The old hard-coded `KitProfile`/`KitAllowance` palette and serialized `KitLoadoutDao` path were retired. The launcher/editor/choice/saving state machine uses generation tokens so close events, repeated clicks, disconnects, and asynchronous saves cannot lose or partially apply a selection.
+
+This is implemented in the working tree. The packaged catalog intentionally contains no active replacement presets: administrators opt in by adding slot groups under `kit.editor.slots` using the commented schema in `config.yml`. Invalid groups are disabled independently and logged with their configuration path.
 
 Per-map kits, kit voting, arbitrary player-provided choices, and essential-item customization are explicitly deferred. The approved detailed design is recorded in `memory/2026-08-28-global-personal-kit-editor-design.md`.
 

@@ -102,8 +102,29 @@ shop:
     tnt-minecart: 60
 
 kit:
-  # Applies after a successful /siege kit. Set to 0 to disable.
+  # Applies only after Equip My Siege Kit or a successful Save & Equip.
+  # Opening and browsing /siege kit is always free. Set to 0 to disable.
   command-cooldown-seconds: 300
+
+  # Personal replacements are opt-in so adding this feature cannot change kit
+  # balance on an existing server. Each configured slot must contain the
+  # inherited default plus at least one explicit replacement. Only storage
+  # slots 0-35 are eligible; sword, armor, and offhand slots are never editable.
+  #
+  # Example (disabled until copied under slots):
+  # slots:
+  #   2:
+  #     display-name: "Utility Slot"
+  #     icon: EXPERIENCE_BOTTLE
+  #     choices:
+  #       default:
+  #         use-default: true
+  #       alternate_food:
+  #         display-name: "Alternate Food"
+  #         material: COOKED_BEEF
+  #         amount: 16
+  editor:
+    slots: {}
 
   # This exact snapshot replaces a player's whole inventory when /siege kit
   # runs and whenever the normal siege lifecycle reapplies their kit.

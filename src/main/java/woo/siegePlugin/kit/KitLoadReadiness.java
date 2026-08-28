@@ -36,6 +36,11 @@ final class KitLoadReadiness {
         return entry != null && entry.state() == State.READY;
     }
 
+    boolean isFailed(UUID playerId) {
+        Entry entry = entries.get(playerId);
+        return entry != null && entry.state() == State.FAILED;
+    }
+
     void forget(UUID playerId) {
         entries.remove(playerId);
     }

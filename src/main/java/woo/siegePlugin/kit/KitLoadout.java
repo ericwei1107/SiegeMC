@@ -23,43 +23,16 @@ public final class KitLoadout {
         return new KitLoadout(new ItemStack[KitSlotKind.TOTAL_SLOTS]);
     }
 
-    /** The starting loadout: full armour, weapons, and the consumable caps. */
-    public static KitLoadout defaultFor(KitProfile profile) {
+    public static KitLoadout fromSpecs(Map<Integer, KitItemSpec> specs) {
         KitLoadout loadout = empty();
-        int nextStorageSlot = 0;
-
-        for (KitAllowance allowance : profile.palette()) {
-            ItemStack stack = KitItems.create(allowance.template(allowance.maxPerSlot()));
+        for (Map.Entry<Integer, KitItemSpec> entry : specs.entrySet()) {
+            ItemStack stack = KitItems.create(entry.getValue());
             if (stack == null) {
-                continue;
+                throw new IllegalStateException("Configured kit material disappeared: " + entry.getValue().material());
             }
-
-            if (allowance.placement() != KitSlotKind.STORAGE) {
-                loadout.slots[allowance.placement().fixedSlot()] = stack;
-                continue;
-            }
-
-            int copies = Math.max(1, allowance.maxTotal() / allowance.maxPerSlot());
-            for (int copy = 0; copy < copies && nextStorageSlot < KitSlotKind.STORAGE_SLOTS; copy++) {
-                loadout.slots[nextStorageSlot++] = stack.clone();
-            }
+            loadout.setItemAt(entry.getKey(), stack);
         }
-
         return loadout;
-    }
-
-    public static KitLoadout fromBytes(byte[] data) {
-        ItemStack[] stored = ItemStack.deserializeItemsFromBytes(data);
-        if (stored.length != KitSlotKind.TOTAL_SLOTS) {
-            throw new IllegalArgumentException(
-                    "Stored kit has " + stored.length + " slots, expected " + KitSlotKind.TOTAL_SLOTS
-            );
-        }
-        return new KitLoadout(stored);
-    }
-
-    public byte[] toBytes() {
-        return ItemStack.serializeItemsAsBytes(slots);
     }
 
     public ItemStack itemAt(int slot) {

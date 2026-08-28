@@ -23,7 +23,7 @@ permissions:
     description: Open the siege shop
     default: true
   siege.kit:
-    description: Receive the configured siege kit
+    description: Equip or customize your siege kit
     default: true
   siege.spectate:
     description: Enter siege spectator mode

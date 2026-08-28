@@ -45,4 +45,16 @@ class KitLoadReadinessTest {
         assertFalse(readiness.complete(playerId, load));
         assertFalse(readiness.isReady(playerId));
     }
+
+    @Test
+    void failedLoadIsDistinguishableSoTheMenuCanRetryIt() {
+        KitLoadReadiness readiness = new KitLoadReadiness();
+        UUID playerId = UUID.randomUUID();
+
+        long load = readiness.begin(playerId);
+
+        assertTrue(readiness.fail(playerId, load));
+        assertTrue(readiness.isFailed(playerId));
+        assertFalse(readiness.isReady(playerId));
+    }
 }

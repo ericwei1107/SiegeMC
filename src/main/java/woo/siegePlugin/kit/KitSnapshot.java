@@ -116,15 +116,7 @@ public final class KitSnapshot {
 
     /** Creates a fresh loadout so no ItemStack is ever shared between players. */
     public KitLoadout createLoadout() {
-        KitLoadout loadout = KitLoadout.empty();
-        for (Map.Entry<Integer, KitItemSpec> entry : slots.entrySet()) {
-            var stack = KitItems.create(entry.getValue());
-            if (stack == null) {
-                throw new IllegalStateException("Configured kit material disappeared: " + entry.getValue().material());
-            }
-            loadout.setItemAt(entry.getKey(), stack);
-        }
-        return loadout;
+        return KitLoadout.fromSpecs(slots);
     }
 
     private static ParsedSnapshot parse(ConfigurationSection config) {

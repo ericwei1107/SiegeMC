@@ -11,6 +11,7 @@ import woo.siegePlugin.minecart.MinecartSettings;
 import woo.siegePlugin.minecart.MinecartDamageSettings;
 import woo.siegePlugin.kit.KitSnapshot;
 import woo.siegePlugin.kit.KitCommandSettings;
+import woo.siegePlugin.kit.KitChoiceCatalog;
 import woo.siegePlugin.score.ScoringSettings;
 
 import java.io.File;
@@ -95,6 +96,9 @@ class CanonicalConfigTest {
         assertEquals("NETHERITE_BOOTS", kit.slots().get(36).material());
         assertEquals("SHIELD", kit.slots().get(40).material());
         assertTrue(KitSnapshot.findConfigurationProblems(config).isEmpty());
+        KitChoiceCatalog.LoadResult catalog = KitChoiceCatalog.load(config, kit);
+        assertTrue(catalog.problems().isEmpty());
+        assertTrue(catalog.catalog().isEmpty());
 
         assertTrue(CanonicalConfig.findConfigurationProblems(config).isEmpty());
     }

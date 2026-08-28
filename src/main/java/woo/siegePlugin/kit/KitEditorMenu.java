@@ -10,126 +10,151 @@ import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * The kit editor's layout.
- *
- * <p>GUI slots 0-40 mirror the player's inventory, slots 44-52 are the palette,
- * and slot 53 resets to the default kit. Nothing here is ever a real item the
- * player can take — every click is cancelled and the contents are rewritten
- * programmatically.</p>
- */
+/** Creates the launcher, editor, replacement-choice, and saving inventories. */
 public final class KitEditorMenu {
 
-    public static final int SIZE = 54;
-    public static final int RESET_SLOT = 53;
-    public static final String ARMOUR_SET = "@armour-set";
-
-    /** Palette GUI slot to what it places. */
-    private static final Map<Integer, String> PALETTE = Map.of(
-            44, ARMOUR_SET,
-            45, "NETHERITE_SWORD",
-            46, "DIAMOND_AXE",
-            47, "SHIELD",
-            48, "EXPERIENCE_BOTTLE",
-            49, "BAKED_POTATO",
-            50, "SPLASH_POTION:STRONG_HEALING",
-            51, "POTION:STRONG_SWIFTNESS",
-            52, "POTION:STRONG_STRENGTH"
-    );
-
-    private static final Map<Integer, Integer> GUI_TO_INVENTORY = Map.of(
-            36, 39, // helmet
-            37, 38, // chestplate
-            38, 37, // leggings
-            39, 36, // boots
-            40, 40  // offhand
-    );
+    public static final int LAUNCHER_SIZE = 27;
+    public static final int LAUNCHER_EQUIP_SLOT = 11;
+    public static final int LAUNCHER_CUSTOMIZE_SLOT = 15;
+    public static final int EDITOR_SIZE = 54;
+    public static final int SAVE_SLOT = 45;
+    public static final int RESET_SLOT = 49;
+    public static final int CANCEL_SLOT = 53;
+    public static final int BACK_SLOT = 45;
 
     private KitEditorMenu() {
     }
 
-    public static Inventory create(KitLoadout loadout, KitProfile profile, String selected) {
-        Holder holder = new Holder();
-        Inventory inventory = Bukkit.createInventory(holder, SIZE, Component.text("Siege Kit Editor"));
-        holder.inventory = inventory;
-        render(inventory, loadout, profile, selected);
+    public static Inventory launcher(KitService service) {
+        LauncherHolder holder = new LauncherHolder();
+        Inventory inventory = Bukkit.createInventory(holder, LAUNCHER_SIZE, Component.text("Siege Kit"));
+        holder.attach(inventory);
+        inventory.setItem(LAUNCHER_EQUIP_SLOT, labelled(
+                new ItemStack(Material.NETHERITE_SWORD),
+                Component.text("Equip My Siege Kit", NamedTextColor.GOLD),
+                List.of(Component.text("Uses your saved kit, or the server default", NamedTextColor.GRAY))
+        ));
+        Material customizeIcon = service.hasEditableChoices() ? Material.ANVIL : Material.BARRIER;
+        Component customizeLore = service.hasEditableChoices()
+                ? Component.text("Make it your own on every map", NamedTextColor.GRAY)
+                : Component.text("No replacement choices are configured", NamedTextColor.RED);
+        inventory.setItem(LAUNCHER_CUSTOMIZE_SLOT, labelled(
+                new ItemStack(customizeIcon),
+                Component.text("Customize My Siege Kit", service.hasEditableChoices()
+                        ? NamedTextColor.GOLD
+                        : NamedTextColor.RED),
+                List.of(customizeLore)
+        ));
         return inventory;
     }
 
-    public static void render(Inventory inventory, KitLoadout loadout, KitProfile profile, String selected) {
-        for (int guiSlot = 0; guiSlot <= 40; guiSlot++) {
-            int inventorySlot = inventorySlotFor(guiSlot);
-            inventory.setItem(guiSlot, inventorySlot < 0 ? null : loadout.itemAt(inventorySlot));
-        }
-        for (int guiSlot = 41; guiSlot <= 43; guiSlot++) {
-            inventory.setItem(guiSlot, filler());
+    public static Inventory editor(KitService service, KitSelection selection, long generation) {
+        Map<Integer, Integer> guiToKitSlot = new LinkedHashMap<>();
+        EditorHolder holder = new EditorHolder(generation, guiToKitSlot);
+        Inventory inventory = Bukkit.createInventory(holder, EDITOR_SIZE, Component.text("Customize Siege Kit"));
+        holder.attach(inventory);
+
+        int guiSlot = 0;
+        for (KitChoiceCatalog.ChoiceGroup group : service.editableGroups()) {
+            guiToKitSlot.put(guiSlot, group.slot());
+            Material material = Material.matchMaterial(group.iconMaterial());
+            if (material == null || !material.isItem()) {
+                material = Material.CHEST;
+            }
+            KitChoiceCatalog.Choice selected = group.choice(selection.choiceAt(group.slot()))
+                    .orElseGet(() -> group.choice(KitChoiceCatalog.DEFAULT_CHOICE).orElseThrow());
+            inventory.setItem(guiSlot, labelled(
+                    new ItemStack(material),
+                    Component.text(group.displayName(), NamedTextColor.GOLD),
+                    List.of(
+                            Component.text("Selected: " + selected.displayName(), NamedTextColor.GREEN),
+                            Component.text("Click to choose a replacement", NamedTextColor.GRAY)
+                    )
+            ));
+            guiSlot++;
         }
 
-        for (Map.Entry<Integer, String> entry : PALETTE.entrySet()) {
-            inventory.setItem(entry.getKey(), paletteIcon(entry.getValue(), profile, selected));
-        }
-        inventory.setItem(RESET_SLOT, labelled(
-                new ItemStack(Material.BARRIER),
-                Component.text("Reset to default kit", NamedTextColor.RED),
-                List.of(Component.text("Click to restore the standard loadout", NamedTextColor.GRAY))
+        inventory.setItem(SAVE_SLOT, labelled(
+                new ItemStack(Material.LIME_DYE),
+                Component.text("Save & Equip", NamedTextColor.GREEN),
+                List.of(Component.text("Save globally, close, and receive this kit", NamedTextColor.GRAY))
         ));
+        inventory.setItem(RESET_SLOT, labelled(
+                new ItemStack(Material.CHEST),
+                Component.text("Reset Draft to Default", NamedTextColor.YELLOW),
+                List.of(Component.text("Nothing changes until you Save & Equip", NamedTextColor.GRAY))
+        ));
+        inventory.setItem(CANCEL_SLOT, labelled(
+                new ItemStack(Material.BARRIER),
+                Component.text("Cancel Without Saving", NamedTextColor.RED),
+                List.of(Component.text("Discard this draft", NamedTextColor.GRAY))
+        ));
+        return inventory;
     }
 
-    /** Maps an editor slot onto a player-inventory slot, or -1 if it is not one. */
-    public static int inventorySlotFor(int guiSlot) {
-        if (guiSlot >= 0 && guiSlot < KitSlotKind.STORAGE_SLOTS) {
-            return guiSlot;
-        }
-        return GUI_TO_INVENTORY.getOrDefault(guiSlot, -1);
-    }
-
-    public static String paletteSelectionAt(int guiSlot) {
-        return PALETTE.get(guiSlot);
-    }
-
-    private static ItemStack paletteIcon(String selection, KitProfile profile, String selected) {
-        boolean isSelected = selection.equals(selected);
-
-        if (ARMOUR_SET.equals(selection)) {
-            return labelled(
-                    new ItemStack(Material.NETHERITE_CHESTPLATE),
-                    Component.text("Full Armour Set", isSelected ? NamedTextColor.GREEN : NamedTextColor.YELLOW),
-                    List.of(Component.text("Click to equip every piece", NamedTextColor.GRAY))
-            );
-        }
-
-        KitAllowance allowance = profile.allowanceForKey(selection).orElse(null);
-        if (allowance == null) {
-            return null;
-        }
-
-        ItemStack icon = KitItems.create(allowance.template(1));
-        if (icon == null) {
-            return null;
-        }
-
-        return labelled(
-                icon,
-                Component.text(
-                        displayName(allowance) + (isSelected ? " (selected)" : ""),
-                        isSelected ? NamedTextColor.GREEN : NamedTextColor.YELLOW
-                ),
-                List.of(
-                        Component.text("Limit: " + allowance.maxTotal() + " total", NamedTextColor.GRAY),
-                        Component.text("Click, then click a slot to place", NamedTextColor.DARK_GRAY)
-                )
+    public static Inventory choices(
+            KitService service,
+            KitChoiceCatalog.ChoiceGroup group,
+            KitSelection selection,
+            long generation
+    ) {
+        Map<Integer, String> guiToChoice = new LinkedHashMap<>();
+        ChoiceHolder holder = new ChoiceHolder(generation, group.slot(), guiToChoice);
+        Inventory inventory = Bukkit.createInventory(
+                holder,
+                EDITOR_SIZE,
+                Component.text("Choose: " + group.displayName())
         );
+        holder.attach(inventory);
+
+        int guiSlot = 0;
+        String selectedKey = selection.choiceAt(group.slot());
+        for (KitChoiceCatalog.Choice choice : group.choices()) {
+            KitItemSpec spec = choice.resolve(service.snapshot(), group.slot());
+            ItemStack icon = KitItems.create(spec);
+            if (icon == null) {
+                continue;
+            }
+            guiToChoice.put(guiSlot, choice.key());
+            boolean selected = selectedKey.equals(choice.key());
+            inventory.setItem(guiSlot, labelled(
+                    icon,
+                    Component.text(
+                            choice.displayName() + (selected ? " (Selected)" : ""),
+                            selected ? NamedTextColor.GREEN : NamedTextColor.GOLD
+                    ),
+                    List.of(Component.text("Click to use this replacement", NamedTextColor.GRAY))
+            ));
+            guiSlot++;
+        }
+
+        inventory.setItem(BACK_SLOT, labelled(
+                new ItemStack(Material.ARROW),
+                Component.text("Back", NamedTextColor.YELLOW),
+                List.of(Component.text("Return without changing this slot", NamedTextColor.GRAY))
+        ));
+        inventory.setItem(CANCEL_SLOT, labelled(
+                new ItemStack(Material.BARRIER),
+                Component.text("Cancel Without Saving", NamedTextColor.RED),
+                List.of(Component.text("Discard the entire draft", NamedTextColor.GRAY))
+        ));
+        return inventory;
     }
 
-    private static ItemStack filler() {
-        return labelled(
-                new ItemStack(Material.GRAY_STAINED_GLASS_PANE),
-                Component.text(" ", NamedTextColor.DARK_GRAY),
-                List.of()
-        );
+    public static Inventory saving(long generation) {
+        SavingHolder holder = new SavingHolder(generation);
+        Inventory inventory = Bukkit.createInventory(holder, LAUNCHER_SIZE, Component.text("Saving Siege Kit"));
+        holder.attach(inventory);
+        inventory.setItem(13, labelled(
+                new ItemStack(Material.CLOCK),
+                Component.text("Saving...", NamedTextColor.YELLOW),
+                List.of(Component.text("Your kit will equip after the save succeeds", NamedTextColor.GRAY))
+        ));
+        return inventory;
     }
 
     private static ItemStack labelled(ItemStack stack, Component name, List<Component> lore) {
@@ -140,27 +165,70 @@ public final class KitEditorMenu {
         return stack;
     }
 
-    private static String prettify(String material) {
-        String[] words = material.toLowerCase(java.util.Locale.ROOT).split("_");
-        StringBuilder pretty = new StringBuilder();
-        for (String word : words) {
-            pretty.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1)).append(' ');
-        }
-        return pretty.toString().trim();
+    public static final class LauncherHolder extends BaseHolder {
     }
 
-    private static String displayName(KitAllowance allowance) {
-        if (allowance.potionType() == null) {
-            return prettify(allowance.material());
+    public static final class EditorHolder extends SessionHolder {
+
+        private final Map<Integer, Integer> guiToKitSlot;
+
+        private EditorHolder(long generation, Map<Integer, Integer> guiToKitSlot) {
+            super(generation);
+            this.guiToKitSlot = guiToKitSlot;
         }
-        String potion = allowance.potionType().replace("STRONG_", "");
-        return prettify(potion) + " II " + prettify(allowance.material());
+
+        public Integer kitSlotAt(int guiSlot) {
+            return guiToKitSlot.get(guiSlot);
+        }
     }
 
-    /** Marks an inventory as the kit editor without relying on its title. */
-    public static final class Holder implements InventoryHolder {
+    public static final class ChoiceHolder extends SessionHolder {
+
+        private final int kitSlot;
+        private final Map<Integer, String> guiToChoice;
+
+        private ChoiceHolder(long generation, int kitSlot, Map<Integer, String> guiToChoice) {
+            super(generation);
+            this.kitSlot = kitSlot;
+            this.guiToChoice = guiToChoice;
+        }
+
+        public int kitSlot() {
+            return kitSlot;
+        }
+
+        public String choiceAt(int guiSlot) {
+            return guiToChoice.get(guiSlot);
+        }
+    }
+
+    public static final class SavingHolder extends SessionHolder {
+
+        private SavingHolder(long generation) {
+            super(generation);
+        }
+    }
+
+    public abstract static class SessionHolder extends BaseHolder {
+
+        private final long generation;
+
+        private SessionHolder(long generation) {
+            this.generation = generation;
+        }
+
+        public long generation() {
+            return generation;
+        }
+    }
+
+    public abstract static class BaseHolder implements InventoryHolder {
 
         private Inventory inventory;
+
+        final void attach(Inventory inventory) {
+            this.inventory = inventory;
+        }
 
         @Override
         public Inventory getInventory() {
