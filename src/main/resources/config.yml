@@ -58,6 +58,10 @@ cleanup:
   minecart-placement-cooldown-seconds: 30
 
 minecart:
+  # Active siege TNT-minecart entity budgets. Set either value to 0 to disable
+  # that limit. The cooldown-bypass permission also bypasses these caps.
+  max-active-per-player: 2
+  max-active-arena: 40
   damage:
     balanced-coefficient: 0.825
     full-damage-deficit: 7
@@ -66,21 +70,36 @@ sidebar:
   title: "Siege Status"
 
 currency:
-  # Untuned placeholders; adjust only after playtesting.
-  per-kill: 0
-  per-capture-tick: 0
+  # One opposing-team kill pays 15 coins. Each completed banner controller
+  # earns 3 coins every 20-second scoring tick (9 coins per minute).
+  per-kill: 15
+  per-capture-tick: 3
+  # Controller rewards are still durable every scoring interval, but chat is
+  # consolidated to avoid flooding players during long banner holds.
+  capture-reward-notice-seconds: 60
 
 shop:
-  # Untuned placeholders; bundle contents remain fixed in code.
+  # Bundle contents remain fixed in code; these prices are safe to tune.
   prices:
-    building-blocks: 0
-    golden-apples: 0
-    cobwebs: 0
-    enchanted-bow: 0
-    arrows: 0
-    trident: 0
-    rails: 0
-    tnt-minecart: 0
+    ender-pearls: 30
+    steak: 12
+    experience-bottles: 300
+    golden-carrots: 24
+    knockback-sword: 200
+    diamond-pickaxe-i: 80
+    diamond-pickaxe-ii: 140
+    diamond-pickaxe-iii: 200
+    diamond-pickaxe-iv: 280
+    diamond-pickaxe-v: 360
+    netherite-pickaxe-v: 500
+    building-blocks: 8
+    golden-apples: 24
+    cobwebs: 30
+    enchanted-bow: 120
+    arrows: 18
+    trident: 240
+    rails: 12
+    tnt-minecart: 60
 
 kit:
   # Applies after a successful /siege kit. Set to 0 to disable.
@@ -189,5 +208,7 @@ kit:
           UNBREAKING: 3
 
 # Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
-# Resets stay disabled until a snapshot exists.
-arena-reset: {}
+# Resets stay disabled until a snapshot exists. Snapshot capture and restoration
+# use native structures on the main thread, so keep this bounded on a low-power VPS.
+arena-reset:
+  max-snapshot-blocks: 1000000

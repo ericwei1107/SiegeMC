@@ -9,12 +9,14 @@ import woo.siegePlugin.minecart.SiegeMinecartMarker;
 
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.time.Instant;
 import java.util.logging.Level;
 
 /**
@@ -33,6 +35,8 @@ public final class CurrencyService {
     private final SiegeMinecartMarker minecartMarker;
     private final Map<UUID, Long> cachedBalances = new HashMap<>();
     private final Set<UUID> purchasesInFlight = new HashSet<>();
+    private final Map<UUID, Long> unannouncedCaptureRewards = new HashMap<>();
+    private final Map<UUID, Instant> lastCaptureRewardNotice = new HashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
     private final AtomicBoolean acceptingPurchases = new AtomicBoolean(false);
 
@@ -63,6 +67,8 @@ public final class CurrencyService {
         active.set(false);
         cachedBalances.clear();
         purchasesInFlight.clear();
+        unannouncedCaptureRewards.clear();
+        lastCaptureRewardNotice.clear();
     }
 
     /** Reconciles a crash-leftover reservation before opening the shop. */
@@ -110,11 +116,34 @@ public final class CurrencyService {
     public void forget(Player player) {
         cachedBalances.remove(player.getUniqueId());
         purchasesInFlight.remove(player.getUniqueId());
+        unannouncedCaptureRewards.remove(player.getUniqueId());
+        lastCaptureRewardNotice.remove(player.getUniqueId());
     }
 
     /** Credits one completed banner controller for an active scoring tick. */
     public void awardBannerControlTick(Player player) {
         award(player, settings.perCaptureTick(), "holding the banner");
+    }
+
+    /** Durable, batched controller credit for one scoring interval. */
+    public void awardBannerControlTicks(Set<UUID> controllerIds) {
+        if (controllerIds.isEmpty() || settings.perCaptureTick() <= 0L || !active.get()) {
+            return;
+        }
+        Set<UUID> ids = Set.copyOf(controllerIds);
+        long amount = settings.perCaptureTick();
+        balanceDao.depositAll(ids, amount).whenComplete((balances, failure) -> onServerThread(() -> {
+            if (failure != null) {
+                logFailure("credit banner controllers", failure);
+                return;
+            }
+            for (Map.Entry<UUID, Long> entry : balances.entrySet()) {
+                UUID playerId = entry.getKey();
+                cachedBalances.put(playerId, entry.getValue());
+                unannouncedCaptureRewards.merge(playerId, amount, Long::sum);
+                sendCaptureRewardNoticeIfDue(playerId, entry.getValue());
+            }
+        }));
     }
 
     public void awardKill(Player killer) {
@@ -137,6 +166,21 @@ public final class CurrencyService {
                 player.sendMessage("+" + amount + " siege coins for " + reason + " (balance: " + balance + ").");
             }
         }));
+    }
+
+    private void sendCaptureRewardNoticeIfDue(UUID playerId, long balance) {
+        Instant now = Instant.now();
+        Instant lastNotice = lastCaptureRewardNotice.get(playerId);
+        if (lastNotice != null && now.isBefore(lastNotice.plus(settings.captureRewardNoticeInterval()))) {
+            return;
+        }
+        Player player = plugin.getServer().getPlayer(playerId);
+        long earned = unannouncedCaptureRewards.getOrDefault(playerId, 0L);
+        if (earned > 0L && player != null && player.isOnline()) {
+            player.sendMessage("+" + earned + " siege coins for holding the banner (balance: " + balance + ").");
+        }
+        unannouncedCaptureRewards.remove(playerId);
+        lastCaptureRewardNotice.put(playerId, now);
     }
 
     /**

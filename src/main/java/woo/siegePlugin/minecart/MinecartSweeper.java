@@ -16,8 +16,8 @@ import java.util.UUID;
  * Removes abandoned carts from the battlefield.
  *
  * <p>A cart is removed only after it has remained riderless and stationary
- * for the configured threshold. There is deliberately no cap on how many
- * carts may exist.</p>
+ * for the configured threshold. Placement caps are enforced separately so
+ * this remains a recovery path rather than the primary load control.</p>
  */
 public final class MinecartSweeper {
 

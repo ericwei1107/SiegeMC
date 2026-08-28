@@ -1,6 +1,5 @@
 package woo.siegePlugin.score;
 
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import woo.siegePlugin.capture.BannerControlStatus;
@@ -40,7 +39,7 @@ public final class ScoringService {
     private final MatchDefinition matchDefinition;
     private final SessionPoints sessionPoints = new SessionPoints();
     private final AtomicBoolean active = new AtomicBoolean(true);
-    private Consumer<Player> bannerControlRewardHandler = player -> {
+    private Consumer<Set<UUID>> bannerControlRewardHandler = playerIds -> {
     };
 
     private MatchRecord scores;
@@ -103,8 +102,8 @@ public final class ScoringService {
         publishSessionPoints();
     }
 
-    /** Receives one online completed controller for every active scoring tick. */
-    public void setBannerControlRewardHandler(Consumer<Player> handler) {
+    /** Receives all online completed controllers once for every active scoring tick. */
+    public void setBannerControlRewardHandler(Consumer<Set<UUID>> handler) {
         bannerControlRewardHandler = handler;
     }
 
@@ -152,11 +151,14 @@ public final class ScoringService {
     }
 
     private void awardBannerControllerCurrency(Set<UUID> controllerIds) {
-        for (UUID controllerId : controllerIds) {
-            Player controller = plugin.getServer().getPlayer(controllerId);
-            if (controller != null && controller.isOnline()) {
-                bannerControlRewardHandler.accept(controller);
-            }
+        Set<UUID> onlineControllerIds = controllerIds.stream()
+                .filter(controllerId -> {
+                    var controller = plugin.getServer().getPlayer(controllerId);
+                    return controller != null && controller.isOnline();
+                })
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (!onlineControllerIds.isEmpty()) {
+            bannerControlRewardHandler.accept(onlineControllerIds);
         }
     }
 
