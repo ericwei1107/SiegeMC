@@ -65,6 +65,8 @@ import woo.siegePlugin.state.LobbySettings;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.state.PlayerStateTransitions;
 import woo.siegePlugin.state.SpectatorResidencyHandler;
+import woo.siegePlugin.storage.PotionStorageListener;
+import woo.siegePlugin.storage.PotionStorageService;
 import woo.siegePlugin.team.TeamAssignmentListener;
 import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
@@ -103,6 +105,7 @@ public final class SiegePlugin extends JavaPlugin {
     private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
+    private PotionStorageService potionStorageService;
 
     @Override
     public void onEnable() {
@@ -126,6 +129,7 @@ public final class SiegePlugin extends JavaPlugin {
         }
 
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
+        this.potionStorageService = new PotionStorageService(this, townyAdapter);
         this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
         TeamIdentityColors identityColors = TeamIdentityColors.fromConfig(getConfig());
         this.teamDisplayService = new TeamDisplayService(
@@ -243,6 +247,9 @@ public final class SiegePlugin extends JavaPlugin {
         if (playerStateTransitionService != null) {
             playerStateTransitionService.shutdown();
         }
+        if (potionStorageService != null) {
+            potionStorageService.shutdown();
+        }
         if (database != null) {
             try {
                 database.close();
@@ -334,7 +341,8 @@ public final class SiegePlugin extends JavaPlugin {
                         arenaResetService,
                         activityCycleService,
                         kitService,
-                        getLogger()
+                        getLogger(),
+                        potionStorageService
                 ),
                 currencyService,
                 kitEditorListener,
@@ -391,6 +399,7 @@ public final class SiegePlugin extends JavaPlugin {
                 new ShopListener(currencyService),
                 this
         );
+        getServer().getPluginManager().registerEvents(new PotionStorageListener(potionStorageService), this);
         getServer().getPluginManager().registerEvents(kitEditorListener, this);
         getServer().getPluginManager().registerEvents(
                 new MinecartPlacementListener(

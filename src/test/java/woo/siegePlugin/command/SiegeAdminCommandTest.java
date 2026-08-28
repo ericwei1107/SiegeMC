@@ -49,6 +49,21 @@ class SiegeAdminCommandTest {
         );
     }
 
+    @Test
+    void supplyCommandsOfferRegistrationAndTeamCompletions() {
+        SiegeAdminCommand command = command();
+        CommandSender sender = sender(true, true, new ArrayList<>());
+
+        assertEquals(
+                List.of("register"),
+                command.tabComplete(sender, new String[]{"admin", "supply", "reg"})
+        );
+        assertEquals(
+                List.of("blue"),
+                command.tabComplete(sender, new String[]{"admin", "supply", "register", "b"})
+        );
+    }
+
     private static SiegeAdminCommand command() {
         return new SiegeAdminCommand(null, null, null, null, null, null, null, Logger.getAnonymousLogger());
     }

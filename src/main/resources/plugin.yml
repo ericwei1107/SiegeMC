@@ -10,7 +10,7 @@ depend: [Towny, CombatLog, Multiverse-Core]
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|resetscores|break [seconds]|resume|setresetpos1|setresetpos2|savesnapshot|savekit|resetmap>>
+    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|resetscores|break [seconds]|resume|setresetpos1|setresetpos2|savesnapshot|savekit|resetmap|supply <register <red|blue>|unregister|list|info>>>
 
 permissions:
   siege.team:

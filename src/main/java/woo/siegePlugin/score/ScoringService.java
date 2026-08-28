@@ -134,8 +134,13 @@ public final class ScoringService {
      * Credits a team for an enemy death. The caller decides who died; this
      * decides whether the award currently counts.
      */
-    public void awardEnemyDeathBonus(Team beneficiary) {
-        award(beneficiary, settings.killRewardPoints(), ScoreReason.ENEMY_DEATH_BONUS);
+    public boolean awardEnemyDeathBonus(Team beneficiary) {
+        return award(beneficiary, settings.killRewardPoints(), ScoreReason.ENEMY_DEATH_BONUS);
+    }
+
+    /** The configured team-score award displayed in a Siege death announcement. */
+    public long killRewardPoints() {
+        return settings.killRewardPoints();
     }
 
     private void awardBannerControlPoints() {
@@ -162,15 +167,20 @@ public final class ScoringService {
         }
     }
 
-    /** The single gate every score change passes through. */
-    private void award(Team team, long points, ScoreReason reason) {
+    /**
+     * The single gate every score change passes through. Queues an award when
+     * scoring is currently able to accept it.
+     *
+     * @return {@code true} when the award was accepted for persistence
+     */
+    private boolean award(Team team, long points, ScoreReason reason) {
         if (points == 0L || !phaseStatus.isActive()) {
-            return;
+            return false;
         }
         if (scores == null) {
             // The match never loaded, so there is no total to add to.
             plugin.getLogger().warning("Ignoring a " + reason + " award because " + MATCH_ID + " is not loaded.");
-            return;
+            return false;
         }
         long awardWindowGeneration = activeWindowGeneration;
 
@@ -191,6 +201,7 @@ public final class ScoringService {
                     publishSessionPoints();
                 })
         );
+        return true;
     }
 
     static boolean shouldApplySessionPoints(

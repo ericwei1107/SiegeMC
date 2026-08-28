@@ -3,6 +3,7 @@ package woo.siegePlugin.display;
 import io.papermc.paper.scoreboard.numbers.NumberFormat;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Server;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.Criteria;
@@ -54,12 +55,12 @@ public final class SidebarService {
             objective = scoreboard.registerNewObjective(
                     OBJECTIVE_NAME,
                     Criteria.DUMMY,
-                    Component.text(settings.title()),
+                    title(settings),
                     RenderType.INTEGER
             );
             objective.numberFormat(NumberFormat.blank());
         } else {
-            objective.displayName(Component.text(settings.title()));
+            objective.displayName(title(settings));
         }
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
         render(objective, lines);
@@ -115,7 +116,7 @@ public final class SidebarService {
 
         Component bannerControl = state.controllingTeam()
                 .<Component>map(team -> Component.text(settings.displayName(team), identityColors.get(team))
-                        .append(Component.text(" (" + state.controllerCount() + ")", NamedTextColor.WHITE)))
+                        .append(Component.text(" (" + state.controllerCount() + ")", NamedTextColor.GOLD)))
                 .orElse(Component.text("None (0)", NamedTextColor.GRAY));
 
         return List.of(
@@ -128,7 +129,7 @@ public final class SidebarService {
                 label("DEF BAT Points: ").append(Component.text(state.blueSessionPoints(), identityColors.get(Team.BLUE))),
                 label("BAT Time Left: ").append(Component.text(
                         state.cycleTimeRemaining().map(SidebarService::formatDuration).orElse("Not started"),
-                        NamedTextColor.WHITE
+                        NamedTextColor.GOLD
                 ))
         );
     }
@@ -143,7 +144,11 @@ public final class SidebarService {
                 : String.format("%d:%02d", minutes, seconds);
     }
 
+    static Component title(SidebarSettings settings) {
+        return Component.text(settings.title(), NamedTextColor.GOLD, TextDecoration.BOLD);
+    }
+
     private static Component label(String value) {
-        return Component.text(value, NamedTextColor.WHITE);
+        return Component.text(value, NamedTextColor.GOLD);
     }
 }

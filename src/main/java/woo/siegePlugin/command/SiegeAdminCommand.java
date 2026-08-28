@@ -13,6 +13,10 @@ import woo.siegePlugin.cycle.ActivityCycleService;
 import woo.siegePlugin.kit.KitService;
 import woo.siegePlugin.kit.KitSnapshot;
 import woo.siegePlugin.score.ScoringService;
+import woo.siegePlugin.storage.PotionStorage;
+import woo.siegePlugin.storage.PotionStorageService;
+import woo.siegePlugin.storage.PotionStorageTemplates;
+import woo.siegePlugin.team.Team;
 
 import java.util.List;
 import java.util.Locale;
@@ -36,7 +40,8 @@ public final class SiegeAdminCommand {
             "setresetpos2",
             "savesnapshot",
             "savekit",
-            "resetmap"
+            "resetmap",
+            "supply"
     );
 
     private final JavaPlugin plugin;
@@ -47,6 +52,7 @@ public final class SiegeAdminCommand {
     private final ActivityCycleService activityCycleService;
     private final KitService kitService;
     private final Logger logger;
+    private final PotionStorageService potionStorageService;
 
     public SiegeAdminCommand(
             JavaPlugin plugin,
@@ -58,6 +64,30 @@ public final class SiegeAdminCommand {
             KitService kitService,
             Logger logger
     ) {
+        this(
+                plugin,
+                captureService,
+                scoringService,
+                snapshotService,
+                resetService,
+                activityCycleService,
+                kitService,
+                logger,
+                null
+        );
+    }
+
+    public SiegeAdminCommand(
+            JavaPlugin plugin,
+            CaptureService captureService,
+            ScoringService scoringService,
+            ArenaSnapshotService snapshotService,
+            ArenaResetService resetService,
+            ActivityCycleService activityCycleService,
+            KitService kitService,
+            Logger logger,
+            PotionStorageService potionStorageService
+    ) {
         this.plugin = plugin;
         this.captureService = captureService;
         this.scoringService = scoringService;
@@ -66,6 +96,7 @@ public final class SiegeAdminCommand {
         this.activityCycleService = activityCycleService;
         this.kitService = kitService;
         this.logger = logger;
+        this.potionStorageService = potionStorageService;
     }
 
     public boolean handle(CommandSender sender, String label, String[] args) {
@@ -88,6 +119,7 @@ public final class SiegeAdminCommand {
             case "savesnapshot" -> handleSaveSnapshot(sender, label, args);
             case "savekit" -> handleSaveKit(sender, label, args);
             case "resetmap" -> handleResetMap(sender);
+            case "supply" -> handleSupply(sender, label, args);
             default -> {
                 sendUsage(sender, label);
                 yield true;
@@ -114,6 +146,18 @@ public final class SiegeAdminCommand {
                 && List.of("resetscores", "savesnapshot", "savekit")
                 .contains(args[1].toLowerCase(Locale.ROOT))) {
             return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
+        }
+        if (args[1].equalsIgnoreCase("supply")) {
+            if (args.length == 3) {
+                String prefix = args[2].toLowerCase(Locale.ROOT);
+                return List.of("register", "unregister", "list", "info").stream()
+                        .filter(option -> option.startsWith(prefix))
+                        .toList();
+            }
+            if (args.length == 4 && args[2].equalsIgnoreCase("register")) {
+                String prefix = args[3].toLowerCase(Locale.ROOT);
+                return List.of("red", "blue").stream().filter(team -> team.startsWith(prefix)).toList();
+            }
         }
         return List.of();
     }
@@ -282,6 +326,110 @@ public final class SiegeAdminCommand {
     private boolean handleResetMap(CommandSender sender) {
         resetService.scheduleReset(sender::sendMessage);
         return true;
+    }
+
+    private boolean handleSupply(CommandSender sender, String label, String[] args) {
+        if (potionStorageService == null) {
+            sender.sendMessage("Potion storage is unavailable while SiegePlugin is starting.");
+            return true;
+        }
+        if (args.length < 3) {
+            sendSupplyUsage(sender, label);
+            return true;
+        }
+        return switch (args[2].toLowerCase(Locale.ROOT)) {
+            case "register" -> handleSupplyRegister(sender, label, args);
+            case "unregister" -> handleSupplyUnregister(sender, label, args);
+            case "list" -> handleSupplyList(sender, label, args);
+            case "info" -> handleSupplyInfo(sender, label, args);
+            default -> {
+                sendSupplyUsage(sender, label);
+                yield true;
+            }
+        };
+    }
+
+    private boolean handleSupplyRegister(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can register a potion storage.");
+            return true;
+        }
+        if (args.length != 4) {
+            sender.sendMessage("Usage: /" + label + " admin supply register <red|blue>");
+            return true;
+        }
+        Team team = Team.fromInput(args[3]).orElse(null);
+        if (team == null) {
+            sender.sendMessage("Unknown team. Choose red or blue.");
+            return true;
+        }
+        PotionStorageService.RegistrationResult result = potionStorageService.register(player, team);
+        sender.sendMessage(result.message());
+        if (result.success()) {
+            logger.info("Potion storage registered by " + player.getName() + " for " + team + ".");
+        }
+        return true;
+    }
+
+    private boolean handleSupplyUnregister(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can unregister a potion storage.");
+            return true;
+        }
+        if (args.length != 3) {
+            sender.sendMessage("Usage: /" + label + " admin supply unregister");
+            return true;
+        }
+        PotionStorageService.UnregistrationResult result = potionStorageService.unregister(player);
+        sender.sendMessage(result.message());
+        if (result.success()) {
+            logger.info("Potion storage unregistered by " + player.getName() + ".");
+        }
+        return true;
+    }
+
+    private boolean handleSupplyList(CommandSender sender, String label, String[] args) {
+        if (args.length != 3) {
+            sender.sendMessage("Usage: /" + label + " admin supply list");
+            return true;
+        }
+        int count = 0;
+        for (PotionStorage storage : potionStorageService.storages()) {
+            count++;
+            sender.sendMessage("- " + storage.team().defaultDisplayName() + " "
+                    + PotionStorageTemplates.label(storage.potion()) + " at "
+                    + storage.key().first().worldName() + " "
+                    + storage.key().first().x() + ", " + storage.key().first().y() + ", "
+                    + storage.key().first().z());
+        }
+        if (count == 0) {
+            sender.sendMessage("No potion storages are registered.");
+        }
+        return true;
+    }
+
+    private boolean handleSupplyInfo(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Only a player can inspect a potion storage.");
+            return true;
+        }
+        if (args.length != 3) {
+            sender.sendMessage("Usage: /" + label + " admin supply info");
+            return true;
+        }
+        org.bukkit.block.Block target = player.getTargetBlockExact(6);
+        PotionStorage storage = target == null ? null : potionStorageService.find(target).orElse(null);
+        if (storage == null) {
+            sender.sendMessage("Look directly at a registered potion storage within 6 blocks.");
+            return true;
+        }
+        sender.sendMessage(storage.team().defaultDisplayName() + " potion storage: "
+                + PotionStorageTemplates.label(storage.potion()) + ".");
+        return true;
+    }
+
+    private void sendSupplyUsage(CommandSender sender, String label) {
+        sender.sendMessage("Usage: /" + label + " admin supply <register <red|blue>|unregister|list|info>");
     }
 
     private void sendUsage(CommandSender sender, String label) {

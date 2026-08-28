@@ -1,5 +1,8 @@
 package woo.siegePlugin.display;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
@@ -60,6 +63,23 @@ class SidebarServiceTest {
     void formatsLongCycleDurations() {
         assertEquals("45:00", SidebarService.formatDuration(Duration.ofMinutes(45)));
         assertEquals("1:02:03", SidebarService.formatDuration(Duration.ofHours(1).plusMinutes(2).plusSeconds(3)));
+    }
+
+    @Test
+    void usesGoldForNeutralSidebarTextAndABoldGoldTitle() {
+        YamlConfiguration config = sidebarConfig();
+        List<Component> lines = SidebarService.buildLines(
+                SidebarSnapshot.initial().withBannerControl(Team.RED, 3),
+                SidebarSettings.fromConfig(config),
+                TeamIdentityColors.fromConfig(config)
+        );
+
+        Component title = SidebarService.title(SidebarSettings.fromConfig(config));
+        assertEquals(NamedTextColor.GOLD, title.color());
+        assertEquals(TextDecoration.State.TRUE, title.decoration(TextDecoration.BOLD));
+        assertEquals(NamedTextColor.GOLD, lines.getFirst().color());
+        assertEquals(NamedTextColor.GOLD, lines.get(4).color());
+        assertEquals(NamedTextColor.GOLD, lines.getLast().children().getFirst().color());
     }
 
     private static YamlConfiguration sidebarConfig() {

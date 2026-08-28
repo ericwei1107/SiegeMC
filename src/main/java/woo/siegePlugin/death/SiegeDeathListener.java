@@ -63,8 +63,26 @@ public final class SiegeDeathListener implements Listener {
             return;
         }
 
-        scoringService.awardEnemyDeathBonus(victimTeam.opponent());
+        if (scoringService.awardEnemyDeathBonus(victimTeam.opponent())) {
+            announceDeath(victim, victimTeam);
+        }
         awardKillerCurrency(victim, victimTeam);
+    }
+
+    private void announceDeath(Player victim, Team victimTeam) {
+        long points = scoringService.killRewardPoints();
+        Player killer = victim.getKiller();
+        if (killer != null && !killer.equals(victim)) {
+            victim.getServer().broadcast(SiegeDeathMessage.killedByPlayer(
+                    victimTeam,
+                    victim.getName(),
+                    killer.getName(),
+                    points
+            ));
+            return;
+        }
+
+        victim.getServer().broadcast(SiegeDeathMessage.died(victimTeam, victim.getName(), points));
     }
 
     /**
