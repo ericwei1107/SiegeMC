@@ -12,6 +12,7 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.time.Duration;
+import java.util.UUID;
 
 /**
  * Applies the TNT-minecart cooldown only to confirmed entity placements and
@@ -24,15 +25,18 @@ public final class MinecartPlacementListener implements Listener {
     private final SiegeMinecartMarker marker;
     private final MinecartCooldownService cooldowns;
     private final MinecartArenaProtection arenaProtection;
+    private final MinecartSettings settings;
 
     public MinecartPlacementListener(
             SiegeMinecartMarker marker,
             MinecartCooldownService cooldowns,
-            MinecartArenaProtection arenaProtection
+            MinecartArenaProtection arenaProtection,
+            MinecartSettings settings
     ) {
         this.marker = marker;
         this.cooldowns = cooldowns;
         this.arenaProtection = arenaProtection;
+        this.settings = settings;
     }
 
     /** Cancels before the successful-placement monitor observes the event. */
@@ -52,6 +56,24 @@ public final class MinecartPlacementListener implements Listener {
             event.setCancelled(true);
             player.sendMessage("Siege TNT minecarts are unavailable until an administrator saves an arena snapshot.");
             return;
+        }
+
+        if (marker.isMarked(usedItem) && !player.hasPermission(BYPASS_PERMISSION)) {
+            MinecartPlacementLimits.Outcome outcome = MinecartPlacementLimits.evaluate(
+                    activeCartsOwnedBy(event.getEntity().getWorld(), player.getUniqueId()),
+                    activeSiegeCarts(event.getEntity().getWorld()),
+                    settings
+            );
+            if (outcome == MinecartPlacementLimits.Outcome.PLAYER_CAP_REACHED) {
+                event.setCancelled(true);
+                player.sendMessage("You already have the maximum number of active siege TNT minecarts.");
+                return;
+            }
+            if (outcome == MinecartPlacementLimits.Outcome.ARENA_CAP_REACHED) {
+                event.setCancelled(true);
+                player.sendMessage("The arena already has the maximum number of active siege TNT minecarts.");
+                return;
+            }
         }
 
         if (player.hasPermission(BYPASS_PERMISSION)) {
@@ -79,7 +101,7 @@ public final class MinecartPlacementListener implements Listener {
 
         ItemStack usedItem = player.getInventory().getItem(event.getHand());
         if (marker.isMarked(usedItem)) {
-            marker.mark(minecart);
+            marker.mark(minecart, player.getUniqueId());
         }
 
         if (!player.hasPermission(BYPASS_PERMISSION)) {
@@ -116,5 +138,18 @@ public final class MinecartPlacementListener implements Listener {
 
     static int cooldownTicks(Duration cooldown) {
         return MinecartCooldownService.cooldownTicks(cooldown);
+    }
+
+    private int activeSiegeCarts(org.bukkit.World world) {
+        return (int) world.getEntitiesByClass(ExplosiveMinecart.class).stream()
+                .filter(marker::isMarked)
+                .count();
+    }
+
+    private int activeCartsOwnedBy(org.bukkit.World world, UUID playerId) {
+        return (int) world.getEntitiesByClass(ExplosiveMinecart.class).stream()
+                .filter(marker::isMarked)
+                .filter(cart -> marker.ownerOf(cart).filter(playerId::equals).isPresent())
+                .count();
     }
 }

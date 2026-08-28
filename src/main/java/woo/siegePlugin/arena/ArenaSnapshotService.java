@@ -22,6 +22,7 @@ public final class ArenaSnapshotService {
     private final JavaPlugin plugin;
     private final ArenaSnapshotStore store;
     private final ArenaMaintenanceCoordinator maintenance;
+    private final ArenaSnapshotLimits limits;
 
     private BukkitTask task;
     private ArenaSnapshotStore replacementStore;
@@ -30,11 +31,13 @@ public final class ArenaSnapshotService {
     public ArenaSnapshotService(
             JavaPlugin plugin,
             ArenaSnapshotStore store,
-            ArenaMaintenanceCoordinator maintenance
+            ArenaMaintenanceCoordinator maintenance,
+            ArenaSnapshotLimits limits
     ) {
         this.plugin = plugin;
         this.store = store;
         this.maintenance = maintenance;
+        this.limits = limits;
     }
 
     public boolean isCapturing() {
@@ -60,6 +63,11 @@ public final class ArenaSnapshotService {
      * Feedback is reported through {@code feedback} on the server thread.
      */
     public void capture(ArenaRegion region, Consumer<String> feedback) {
+        if (!limits.permits(region)) {
+            feedback.accept("Snapshot rejected: region has " + region.blockCount()
+                    + " blocks but the configured limit is " + limits.maxBlocks() + ".");
+            return;
+        }
         if (!maintenance.beginCapture()) {
             feedback.accept("Arena maintenance is already " + describeState(maintenance.state()) + ".");
             return;

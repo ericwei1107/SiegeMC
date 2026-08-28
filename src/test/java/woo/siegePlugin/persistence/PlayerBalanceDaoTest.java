@@ -7,7 +7,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -40,6 +42,23 @@ class PlayerBalanceDaoTest {
             assertEquals(50L, await(dao.deposit(player, 50L)));
             assertEquals(75L, await(dao.deposit(player, 25L)));
             assertEquals(75L, await(dao.load(player)));
+        }
+    }
+
+    @Test
+    void batchDepositCreditsEveryControllerInOneDurableOperation() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            PlayerBalanceDao dao = new PlayerBalanceDao(database);
+            UUID first = UUID.randomUUID();
+            UUID second = UUID.randomUUID();
+            await(dao.deposit(first, 10L));
+
+            Map<UUID, Long> balances = await(dao.depositAll(Set.of(first, second), 3L));
+
+            assertEquals(13L, balances.get(first));
+            assertEquals(3L, balances.get(second));
+            assertEquals(13L, await(dao.load(first)));
+            assertEquals(3L, await(dao.load(second)));
         }
     }
 

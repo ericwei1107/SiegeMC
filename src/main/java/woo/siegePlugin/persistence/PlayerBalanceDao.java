@@ -5,6 +5,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -49,6 +52,46 @@ public final class PlayerBalanceDao {
                 statement.executeUpdate();
             }
             return readBalance(connection, playerId);
+        });
+    }
+
+    /**
+     * Credits several controllers in one SQLite transaction. Banner scoring
+     * invokes this once per scoring interval instead of submitting one queued
+     * transaction for every controller.
+     */
+    public CompletableFuture<Map<UUID, Long>> depositAll(Set<UUID> playerIds, long amount) {
+        Objects.requireNonNull(playerIds, "playerIds");
+        if (amount < 0L) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Deposits cannot be negative"));
+        }
+        if (playerIds.isEmpty() || amount == 0L) {
+            return CompletableFuture.completedFuture(Map.of());
+        }
+        Set<UUID> ids = Set.copyOf(playerIds);
+        return database.submitTransaction(connection -> {
+            long now = System.currentTimeMillis();
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    INSERT INTO player_balances (player_uuid, balance, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(player_uuid) DO UPDATE SET
+                        balance = balance + excluded.balance,
+                        updated_at = excluded.updated_at
+                    """)) {
+                for (UUID playerId : ids) {
+                    statement.setString(1, playerId.toString());
+                    statement.setLong(2, amount);
+                    statement.setLong(3, now);
+                    statement.addBatch();
+                }
+                statement.executeBatch();
+            }
+
+            Map<UUID, Long> balances = new LinkedHashMap<>();
+            for (UUID playerId : ids) {
+                balances.put(playerId, readBalance(connection, playerId));
+            }
+            return Map.copyOf(balances);
         });
     }
 

@@ -42,16 +42,19 @@ class ShopBundleTest {
             assertEquals(Optional.of(bundle), ShopBundle.atSlot(bundle.slot()));
         }
 
-        assertEquals(Optional.empty(), ShopBundle.atSlot(0));
+        assertEquals(Optional.empty(), ShopBundle.atSlot(15));
         assertEquals(Optional.empty(), ShopBundle.atSlot(26));
     }
 
     @Test
     void theApprovedBundleListIsPresent() {
-        assertEquals(8, ShopBundle.values().length);
+        assertEquals(19, ShopBundle.values().length);
         for (String key : java.util.List.of(
                 "building-blocks", "golden-apples", "cobwebs", "rails",
-                "enchanted-bow", "arrows", "trident", "tnt-minecart"
+                "enchanted-bow", "arrows", "trident", "tnt-minecart",
+                "ender-pearls", "steak", "experience-bottles", "golden-carrots", "knockback-sword",
+                "diamond-pickaxe-i", "diamond-pickaxe-ii", "diamond-pickaxe-iii",
+                "diamond-pickaxe-iv", "diamond-pickaxe-v", "netherite-pickaxe-v"
         )) {
             assertTrue(
                     Arrays.stream(ShopBundle.values()).anyMatch(bundle -> bundle.configKey().equals(key)),
@@ -61,9 +64,14 @@ class ShopBundleTest {
     }
 
     @Test
-    void everyUntunedBundleDefaultsToZero() {
-        for (ShopBundle bundle : ShopBundle.values()) {
-            assertEquals(0L, bundle.defaultPrice(), bundle + " is not an untuned zero placeholder");
-        }
+    void newBundlesHaveSafeFallbackPricesForExistingConfigurations() {
+        assertEquals(30L, ShopBundle.ENDER_PEARLS.defaultPrice());
+        assertEquals(12L, ShopBundle.STEAK.defaultPrice());
+        assertEquals(300L, ShopBundle.EXPERIENCE_BOTTLES.defaultPrice());
+        assertEquals(24L, ShopBundle.GOLDEN_CARROTS.defaultPrice());
+        assertEquals(200L, ShopBundle.KNOCKBACK_SWORD.defaultPrice());
+        assertEquals(80L, ShopBundle.DIAMOND_PICKAXE_I.defaultPrice());
+        assertEquals(500L, ShopBundle.NETHERITE_PICKAXE_V.defaultPrice());
     }
+
 }

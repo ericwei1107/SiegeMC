@@ -24,7 +24,7 @@ minecart:
 
 For a quicker cycle test, temporarily set `activity-cycle.active-duration-seconds: 30`, `activity-cycle.break-duration-seconds: 30`, and `cleanup.map-reset-interval-hours: 0.05` (three minutes). Restart after changing them, then restore the normal values when finished.
 
-Currency gains and shop prices are deliberately `0` in the current defaults. To test currency credit, deductions, and the insufficient-balance path, temporarily set a non-zero `currency.per-kill`, `currency.per-capture-tick`, and one or more `shop.prices.*` values, then restart. Record those temporary values and restore the intended balance configuration after the test.
+The default economy awards `15` coins for an eligible opposing-team kill and `3` coins to each completed banner controller every 20-second scoring tick. Shop prices live under `shop.prices.*`; change them in `config.yml` and restart to apply a new balance. The shop includes combat/utility bundles, a six-tier pickaxe progression, and one expensive stack of 64 experience bottles; all prices are owner-tunable.
 
 ## Command and permission reference
 
@@ -60,7 +60,7 @@ Useful test-only commands, entered by an operator or server console, are:
 /lp user <player> permission unset siege.minecart.cooldown.bypass
 ```
 
-The `/give` cart is intentionally untagged. It is the control case for Stage 4.5: it receives the normal vanilla explosion and terrain behavior. A cart bought through `/siege shop` is tagged and receives the Stage 4.5 custom rules.
+The `/give` cart is intentionally untagged. It is the control case for Stage 4.5 damage: it receives normal vanilla entity damage. A cart bought through `/siege shop` is tagged and receives the Stage 4.5 damage-scaling rules. Any entity explosion inside the saved arena footprint has terrain damage suppressed.
 
 ## Recommended test order
 
@@ -139,7 +139,7 @@ Do this before judging whether the 0.825 coefficient feels right. Use an untagge
 
 | Test | Setup | Record |
 | --- | --- | --- |
-| Untagged baseline | Drop or trigger the `/give` cart at each planned tower height. | Fall height, armor/enchantments, effects, distance, health lost, whether it kills, and terrain crater. |
+| Untagged baseline | Drop or trigger the `/give` cart at each planned tower height. | Fall height, armor/enchantments, effects, distance, and whether it kills. Test outside the saved arena footprint only if you need a terrain-crater baseline. |
 | Tagged comparison | Repeat the exact setup with a cart purchased from `/siege shop`. | The same values, plus the capture-zone headcounts. |
 
 Notes:
@@ -152,12 +152,12 @@ Notes:
 
 - [ ] Buy a TNT minecart from `/siege shop`. It is the tagged Stage 4.5 cart. A cart created with `/give` is untagged and must remain a vanilla control.
 - [ ] On a fresh test server with no saved arena snapshot, try placing a shop cart. It is blocked with the message that an administrator must save an arena snapshot. The item is not consumed and no cooldown should start.
-- [ ] After the confirmed snapshot sequence above, place the shop cart successfully. Its special rules are now active on the entity.
+- [ ] After the confirmed snapshot sequence above, place the shop cart successfully. Its damage-scaling rule is now active on the entity.
 - [ ] If a tagged cart is broken without exploding and vanilla produces a TNT-minecart item drop, pick it up and place it later. The replacement cart must still behave as tagged. This verifies tag preservation across the item/entity cycle.
 
 ### Placement cooldown and bypass
 
-The placement cooldown applies to **every** TNT minecart placement, not only shop carts. The special damage and terrain rules apply only to tagged shop carts.
+The placement cooldown applies to **every** TNT minecart placement, not only shop carts. The special damage rule applies only to tagged shop carts; terrain protection applies to every entity explosion inside the saved arena footprint.
 
 - [ ] Put TNT minecarts in two hotbar slots. Place one successfully on rail, then immediately try the other. The second placement is cancelled and says, `You must wait before placing another TNT minecart.` The item remains.
 - [ ] During the same 30 seconds, move the stack between slots, drop it and pick it up, buy or receive another cart, and try every stack. None can place.
@@ -196,13 +196,13 @@ For every tagged-cart damage test, only count online, alive, non-spectator team 
 
 ### Terrain suppression and boundary
 
-The protected terrain is the saved snapshot's full X/Z footprint, at every height. It is not limited to the banner's 16-block capture cylinder.
+The protected terrain is the saved snapshot's full X/Z footprint, at every height. It is not limited to the banner's 16-block capture cylinder. Every entity explosion, including ordinary TNT, TNT minecarts, and creepers, preserves blocks inside this footprint while still damaging nearby entities.
 
-- [ ] Detonate a tagged shop cart inside the saved snapshot footprint. Nearby blocks inside that X/Z footprint do not break, while players in range still take damage.
+- [ ] Detonate either a tagged shop cart or an untagged `/give` cart inside the saved snapshot footprint. Nearby blocks inside that X/Z footprint do not break, while players in range still take damage.
 - [ ] Repeat the test high above the snapshot's configured Y range, such as on a tower inside the same X/Z bounds. Blocks are still protected.
-- [ ] Put equivalent blocks immediately inside and immediately outside the saved footprint's X/Z edge. A tagged explosion preserves the inside block and may destroy the outside block.
-- [ ] Detonate an untagged `/give` cart inside the same footprint. It follows vanilla terrain behavior, proving suppression is tied to the shop tag rather than a global explosion cancellation.
-- [ ] Save a new snapshot with different corners, then repeat the boundary test. The new saved footprint takes effect immediately for new tagged-cart explosions.
+- [ ] Put equivalent blocks immediately inside and immediately outside the saved footprint's X/Z edge. A TNT explosion preserves the inside block and may destroy the outside block.
+- [ ] Detonate ordinary primed TNT or a creeper inside the same footprint. Its terrain damage is also suppressed, while entity damage remains active.
+- [ ] Save a new snapshot with different corners, then repeat the boundary test. The new saved footprint takes effect immediately for subsequent entity explosions.
 
 ### Stationary-cart cleanup
 

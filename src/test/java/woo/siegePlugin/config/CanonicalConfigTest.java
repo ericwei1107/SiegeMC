@@ -55,17 +55,36 @@ class CanonicalConfigTest {
         MinecartSettings minecarts = MinecartSettings.fromConfig(config);
         assertEquals(Duration.ofSeconds(30), minecarts.tntPlacementCooldown());
         assertEquals(Duration.ofSeconds(300), minecarts.stationaryCleanupThreshold());
+        assertEquals(2, minecarts.maxActivePerPlayer());
+        assertEquals(40, minecarts.maxActiveArena());
 
         MinecartDamageSettings minecartDamage = MinecartDamageSettings.fromConfig(config);
         assertEquals(0.825D, minecartDamage.balancedCoefficient());
         assertEquals(7, minecartDamage.fullDamageDeficit());
 
         CurrencySettings currency = CurrencySettings.fromConfig(config);
-        assertEquals(0L, currency.perKill());
-        assertEquals(0L, currency.perCaptureTick());
-        for (ShopBundle bundle : ShopBundle.values()) {
-            assertEquals(0L, currency.priceOf(bundle), bundle + " price is not an untuned placeholder");
-        }
+        assertEquals(15L, currency.perKill());
+        assertEquals(3L, currency.perCaptureTick());
+        assertEquals(Duration.ofSeconds(60), currency.captureRewardNoticeInterval());
+        assertEquals(8L, currency.priceOf(ShopBundle.COBBLESTONE));
+        assertEquals(24L, currency.priceOf(ShopBundle.GOLDEN_APPLES));
+        assertEquals(30L, currency.priceOf(ShopBundle.COBWEBS));
+        assertEquals(12L, currency.priceOf(ShopBundle.RAILS));
+        assertEquals(120L, currency.priceOf(ShopBundle.BOW));
+        assertEquals(18L, currency.priceOf(ShopBundle.ARROWS));
+        assertEquals(240L, currency.priceOf(ShopBundle.TRIDENT));
+        assertEquals(60L, currency.priceOf(ShopBundle.TNT_MINECART));
+        assertEquals(30L, currency.priceOf(ShopBundle.ENDER_PEARLS));
+        assertEquals(12L, currency.priceOf(ShopBundle.STEAK));
+        assertEquals(300L, currency.priceOf(ShopBundle.EXPERIENCE_BOTTLES));
+        assertEquals(24L, currency.priceOf(ShopBundle.GOLDEN_CARROTS));
+        assertEquals(200L, currency.priceOf(ShopBundle.KNOCKBACK_SWORD));
+        assertEquals(80L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_I));
+        assertEquals(140L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_II));
+        assertEquals(200L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_III));
+        assertEquals(280L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_IV));
+        assertEquals(360L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_V));
+        assertEquals(500L, currency.priceOf(ShopBundle.NETHERITE_PICKAXE_V));
 
         KitSnapshot kit = KitSnapshot.fromConfig(config);
         assertEquals(Duration.ofMinutes(5), KitCommandSettings.fromConfig(config).cooldown());

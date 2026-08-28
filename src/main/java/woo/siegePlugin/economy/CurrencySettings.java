@@ -6,20 +6,31 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Duration;
 
 /** Currency earn rates and per-bundle shop prices. */
-public record CurrencySettings(long perCaptureTick, long perKill, Map<ShopBundle, Long> prices) {
+public record CurrencySettings(
+        long perCaptureTick,
+        long perKill,
+        Duration captureRewardNoticeInterval,
+        Map<ShopBundle, Long> prices
+) {
 
     static final String PER_CAPTURE_TICK_PATH = "currency.per-capture-tick";
     static final String PER_KILL_PATH = "currency.per-kill";
+    static final String CAPTURE_NOTICE_INTERVAL_PATH = "currency.capture-reward-notice-seconds";
     static final String PRICE_ROOT = "shop.prices";
 
     private static final long DEFAULT_CAPTURE_REWARD = 0L;
     private static final long DEFAULT_KILL_REWARD = 0L;
+    private static final long DEFAULT_CAPTURE_NOTICE_SECONDS = 60L;
 
     public CurrencySettings {
         if (perCaptureTick < 0L || perKill < 0L) {
             throw new IllegalArgumentException("Currency rewards cannot be negative");
+        }
+        if (captureRewardNoticeInterval.isNegative() || captureRewardNoticeInterval.isZero()) {
+            throw new IllegalArgumentException("Capture reward notice interval must be positive");
         }
         // Built by key rather than EnumMap's copy constructor, which rejects an
         // empty non-EnumMap source.
@@ -37,6 +48,7 @@ public record CurrencySettings(long perCaptureTick, long perKill, Map<ShopBundle
         return new CurrencySettings(
                 config.getLong(PER_CAPTURE_TICK_PATH, DEFAULT_CAPTURE_REWARD),
                 config.getLong(PER_KILL_PATH, DEFAULT_KILL_REWARD),
+                Duration.ofSeconds(config.getLong(CAPTURE_NOTICE_INTERVAL_PATH, DEFAULT_CAPTURE_NOTICE_SECONDS)),
                 prices
         );
     }
@@ -47,6 +59,9 @@ public record CurrencySettings(long perCaptureTick, long perKill, Map<ShopBundle
             if (config.isSet(path) && config.getLong(path, -1L) < 0L) {
                 problems.add(path + " must be zero or a positive amount");
             }
+        }
+        if (config.isSet(CAPTURE_NOTICE_INTERVAL_PATH) && config.getLong(CAPTURE_NOTICE_INTERVAL_PATH, 0L) <= 0L) {
+            problems.add(CAPTURE_NOTICE_INTERVAL_PATH + " must be a positive number of seconds");
         }
         for (ShopBundle bundle : ShopBundle.values()) {
             String path = pricePath(bundle);

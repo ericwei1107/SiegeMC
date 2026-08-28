@@ -20,7 +20,18 @@ public enum ShopBundle {
     BOW("enchanted-bow", "Siege Bow", 0L, 19, ShopBundle::siegeBow),
     ARROWS("arrows", "64 Arrows", 0L, 20, () -> new ItemStack(Material.ARROW, 64)),
     TRIDENT("trident", "Siege Trident", 0L, 21, ShopBundle::siegeTrident),
-    TNT_MINECART("tnt-minecart", "TNT Minecart", 0L, 22, () -> new ItemStack(Material.TNT_MINECART, 1));
+    TNT_MINECART("tnt-minecart", "TNT Minecart", 0L, 22, () -> new ItemStack(Material.TNT_MINECART, 1)),
+    ENDER_PEARLS("ender-pearls", "16 Ender Pearls", 30L, 0, () -> new ItemStack(Material.ENDER_PEARL, 16)),
+    STEAK("steak", "64 Steak", 12L, 1, () -> new ItemStack(Material.COOKED_BEEF, 64)),
+    EXPERIENCE_BOTTLES("experience-bottles", "64 Bottles o' Enchanting", 300L, 2, () -> new ItemStack(Material.EXPERIENCE_BOTTLE, 64)),
+    GOLDEN_CARROTS("golden-carrots", "64 Golden Carrots", 24L, 3, () -> new ItemStack(Material.GOLDEN_CARROT, 64)),
+    KNOCKBACK_SWORD("knockback-sword", "Knockback II Diamond Sword", 200L, 4, ShopBundle::knockbackSword),
+    DIAMOND_PICKAXE_I("diamond-pickaxe-i", "Diamond Pickaxe I", 80L, 5, () -> pickaxe(Material.DIAMOND_PICKAXE, 1, 1)),
+    DIAMOND_PICKAXE_II("diamond-pickaxe-ii", "Diamond Pickaxe II", 140L, 6, () -> pickaxe(Material.DIAMOND_PICKAXE, 2, 2)),
+    DIAMOND_PICKAXE_III("diamond-pickaxe-iii", "Diamond Pickaxe III", 200L, 7, () -> pickaxe(Material.DIAMOND_PICKAXE, 3, 2)),
+    DIAMOND_PICKAXE_IV("diamond-pickaxe-iv", "Diamond Pickaxe IV", 280L, 8, () -> pickaxe(Material.DIAMOND_PICKAXE, 4, 3)),
+    DIAMOND_PICKAXE_V("diamond-pickaxe-v", "Diamond Pickaxe V", 360L, 9, () -> pickaxe(Material.DIAMOND_PICKAXE, 5, 3)),
+    NETHERITE_PICKAXE_V("netherite-pickaxe-v", "Netherite Pickaxe V", 500L, 14, () -> pickaxe(Material.NETHERITE_PICKAXE, 5, 3));
 
     private final String configKey;
     private final String displayName;
@@ -84,5 +95,18 @@ public enum ShopBundle {
         trident.addEnchantment(Enchantment.UNBREAKING, 3);
         trident.addEnchantment(Enchantment.MENDING, 1);
         return trident;
+    }
+
+    private static ItemStack knockbackSword() {
+        ItemStack sword = new ItemStack(Material.DIAMOND_SWORD);
+        sword.addEnchantment(Enchantment.KNOCKBACK, 2);
+        return sword;
+    }
+
+    private static ItemStack pickaxe(Material material, int efficiency, int unbreaking) {
+        ItemStack pickaxe = new ItemStack(material);
+        pickaxe.addEnchantment(Enchantment.EFFICIENCY, efficiency);
+        pickaxe.addEnchantment(Enchantment.UNBREAKING, unbreaking);
+        return pickaxe;
     }
 }

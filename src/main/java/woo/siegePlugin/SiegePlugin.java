@@ -5,6 +5,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.arena.ArenaResetService;
+import woo.siegePlugin.arena.ArenaSnapshotLimits;
 import woo.siegePlugin.arena.ArenaResetScheduler;
 import woo.siegePlugin.arena.ArenaMaintenanceCoordinator;
 import woo.siegePlugin.arena.ArenaCleanupSettings;
@@ -185,7 +186,7 @@ public final class SiegePlugin extends JavaPlugin {
                 CurrencySettings.fromConfig(getConfig()),
                 siegeMinecartMarker
         );
-        scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTick);
+        scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTicks);
         initializeArenaMaintenance();
         registerCommands();
         registerListeners();
@@ -284,6 +285,7 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(ScoringSettings.findConfigurationProblems(config));
         problems.addAll(ActivityCycleSettings.findConfigurationProblems(config));
         problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
+        problems.addAll(ArenaSnapshotLimits.findConfigurationProblems(config));
         problems.addAll(ArenaCleanupSettings.findConfigurationProblems(config));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
         problems.addAll(MinecartDamageSettings.findConfigurationProblems(config));
@@ -395,12 +397,13 @@ public final class SiegePlugin extends JavaPlugin {
                 new MinecartPlacementListener(
                         siegeMinecartMarker,
                         minecartCooldownService,
-                        minecartArenaProtection
+                        minecartArenaProtection,
+                        MinecartSettings.fromConfig(getConfig())
                 ),
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new MinecartTerrainProtectionListener(siegeMinecartMarker, minecartArenaProtection),
+                new MinecartTerrainProtectionListener(minecartArenaProtection),
                 this
         );
         CaptureSettings captureSettings = CaptureSettings.fromConfig(getConfig());
@@ -421,7 +424,12 @@ public final class SiegePlugin extends JavaPlugin {
         ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
         ArenaMaintenanceCoordinator maintenance = new ArenaMaintenanceCoordinator();
         this.minecartArenaProtection = new MinecartArenaProtection(snapshotStore.loadRegion());
-        this.arenaSnapshotService = new ArenaSnapshotService(this, snapshotStore, maintenance);
+        this.arenaSnapshotService = new ArenaSnapshotService(
+                this,
+                snapshotStore,
+                maintenance,
+                ArenaSnapshotLimits.fromConfig(getConfig())
+        );
         arenaSnapshotService.setSnapshotSavedHandler(minecartArenaProtection::update);
         this.placedBlockTracker = new InMemoryPlacedBlockTracker();
         this.arenaResetService = new ArenaResetService(
