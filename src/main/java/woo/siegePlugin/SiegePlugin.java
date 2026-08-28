@@ -100,6 +100,7 @@ public final class SiegePlugin extends JavaPlugin {
     private CurrencyService currencyService;
     private KitService kitService;
     private KitEditorListener kitEditorListener;
+    private List<String> kitConfigurationProblems = List.of();
     private SiegeDatabase database;
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
@@ -110,6 +111,9 @@ public final class SiegePlugin extends JavaPlugin {
         // default from resources/config.yml if it's missing. Does NOT
         // overwrite an existing file.
         saveDefaultConfig();
+
+        this.kitConfigurationProblems = KitSnapshot.findRuntimeConfigurationProblems(getConfig());
+        warnAboutKitConfigurationProblems();
 
         List<String> problems = new ArrayList<>();
         problems.addAll(TownyAdapter.provisionSpectatorTown(getConfig()));
@@ -208,7 +212,7 @@ public final class SiegePlugin extends JavaPlugin {
             getLogger().warning("=====================================================================");
         }
 
-        getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
+        getLogger().info("SiegeMC enabled — required configuration and Towny integration validated successfully.");
     }
 
     @Override
@@ -292,7 +296,6 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(MinecartWorldCompatibility.findProblems(config, getServer()));
         problems.addAll(CurrencySettings.findConfigurationProblems(config));
         problems.addAll(KitCommandSettings.findConfigurationProblems(config));
-        problems.addAll(KitSnapshot.findRuntimeConfigurationProblems(config));
         problems.addAll(LobbySettings.findConfigurationProblems(config, getServer()));
         problems.addAll(CanonicalConfig.findConfigurationProblems(config));
 
@@ -315,6 +318,24 @@ public final class SiegePlugin extends JavaPlugin {
         }
 
         return problems;
+    }
+
+    /**
+     * A malformed optional loadout must never take the whole siege system down.
+     * The kit command stays unavailable until an administrator fixes the YAML or
+     * captures a replacement with {@code /siege admin savekit confirm}.
+     */
+    private void warnAboutKitConfigurationProblems() {
+        if (kitConfigurationProblems.isEmpty()) {
+            return;
+        }
+
+        getLogger().warning("Siege kit configuration has problems. SiegeMC will stay enabled, "
+                + "but /siege kit is unavailable until the kit is fixed or saved again.");
+        for (String problem : kitConfigurationProblems) {
+            getLogger().warning(" - " + problem);
+        }
+        getLogger().warning("Fix kit.default-loadout in config.yml or run /siege admin savekit confirm.");
     }
 
     private void registerCommands() {
@@ -456,7 +477,8 @@ public final class SiegePlugin extends JavaPlugin {
         this.database = new SiegeDatabase(getDataFolder().toPath().resolve("siege.db"));
         this.kitService = new KitService(
                 this,
-                KitSnapshot.fromConfig(getConfig())
+                kitConfigurationProblems.isEmpty() ? KitSnapshot.fromConfig(getConfig()) : null,
+                kitConfigurationProblems
         );
         this.kitEditorListener = new KitEditorListener(
                 kitService,

@@ -23,6 +23,11 @@ public final class KitEditorListener implements Listener {
     }
 
     public boolean equip(Player player) {
+        if (!kitService.isConfigured()) {
+            player.sendMessage("The siege kit is unavailable because its configuration has errors.");
+            player.sendMessage("Ask an administrator to fix config.yml or run /siege admin savekit confirm.");
+            return false;
+        }
         Duration remaining = cooldown.remaining(player.getUniqueId());
         if (!remaining.isZero()) {
             player.sendMessage("You must wait " + formatDuration(remaining) + " before using /siege kit again.");
