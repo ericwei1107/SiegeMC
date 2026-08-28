@@ -113,6 +113,7 @@ public final class SiegePlugin extends JavaPlugin {
         // default from resources/config.yml if it's missing. Does NOT
         // overwrite an existing file.
         saveDefaultConfig();
+        saveResource("maps.yml", false);
 
         List<String> problems = new ArrayList<>();
         problems.addAll(TownyAdapter.provisionSpectatorTown(getConfig()));
