@@ -1,6 +1,7 @@
 package woo.siegePlugin.kit;
 
 import org.bukkit.Material;
+import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
@@ -40,6 +41,30 @@ public final class KitSnapshot {
 
     public static List<String> findConfigurationProblems(FileConfiguration config) {
         return parse(config).problems();
+    }
+
+    /**
+     * Upgrades a pre-snapshot config by installing the kit bundled with the plugin.
+     * An explicitly configured (even empty) snapshot is left alone so validation can
+     * still report administrator mistakes instead of silently overwriting them.
+     */
+    public static boolean migrateMissingSnapshotFromDefaults(FileConfiguration config) {
+        if (config.contains(SLOT_ROOT, true)) {
+            return false;
+        }
+
+        Configuration defaults = config.getDefaults();
+        if (defaults == null) {
+            return false;
+        }
+
+        ParsedSnapshot bundled = parse(defaults);
+        if (!bundled.problems().isEmpty()) {
+            return false;
+        }
+
+        new KitSnapshot(bundled.slots()).saveToConfig(config);
+        return true;
     }
 
     /**
@@ -105,7 +130,7 @@ public final class KitSnapshot {
         return loadout;
     }
 
-    private static ParsedSnapshot parse(FileConfiguration config) {
+    private static ParsedSnapshot parse(ConfigurationSection config) {
         List<String> problems = new ArrayList<>();
         Map<Integer, KitItemSpec> slots = new LinkedHashMap<>();
         ConfigurationSection configuredSlots = config.getConfigurationSection(SLOT_ROOT);
@@ -191,9 +216,7 @@ public final class KitSnapshot {
             return null;
         }
 
-        if (material != Material.POTION
-                && material != Material.SPLASH_POTION
-                && material != Material.LINGERING_POTION) {
+        if (!supportsPotionType(material)) {
             problems.add(itemPath + ".potion-type is only valid for potion item materials");
             return null;
         }
@@ -231,6 +254,18 @@ public final class KitSnapshot {
 
     private static boolean isAir(Material material) {
         return material == Material.AIR || material == Material.CAVE_AIR || material == Material.VOID_AIR;
+    }
+
+    /**
+     * Matches the materials that Bukkit represents with {@code PotionMeta}.
+     * This keeps snapshots captured by {@code /siege admin savekit} valid when
+     * they contain tipped arrows as well as potion bottles.
+     */
+    private static boolean supportsPotionType(Material material) {
+        return material == Material.POTION
+                || material == Material.SPLASH_POTION
+                || material == Material.LINGERING_POTION
+                || material == Material.TIPPED_ARROW;
     }
 
     private static void captureRange(Map<Integer, KitItemSpec> captured, ItemStack[] contents, int firstSlot) {

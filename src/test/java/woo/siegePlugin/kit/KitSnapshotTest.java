@@ -40,6 +40,26 @@ class KitSnapshotTest {
     }
 
     @Test
+    void acceptsPotionMetadataOnTippedArrowsCapturedBySaveKit() throws Exception {
+        YamlConfiguration config = new YamlConfiguration();
+        config.loadFromString("""
+                kit:
+                  default-loadout:
+                    slots:
+                      8:
+                        material: TIPPED_ARROW
+                        amount: 16
+                        potion-type: STRONG_HARMING
+                """);
+
+        KitSnapshot snapshot = KitSnapshot.fromConfig(config);
+
+        assertEquals("TIPPED_ARROW", snapshot.slots().get(8).material());
+        assertEquals("STRONG_HARMING", snapshot.slots().get(8).potionType());
+        assertTrue(KitSnapshot.findConfigurationProblems(config).isEmpty());
+    }
+
+    @Test
     void reportsEveryInvalidSlotAndItemSetting() throws Exception {
         YamlConfiguration config = new YamlConfiguration();
         config.loadFromString("""
@@ -83,6 +103,54 @@ class KitSnapshotTest {
         assertEquals(
                 List.of("kit.default-loadout.slots must contain at least one configured slot"),
                 KitSnapshot.findConfigurationProblems(config)
+        );
+    }
+
+    @Test
+    void migratesLegacyConfigFromBundledDefaultsExactlyOnce() throws Exception {
+        YamlConfiguration bundledDefaults = new YamlConfiguration();
+        bundledDefaults.loadFromString("""
+                kit:
+                  default-loadout:
+                    slots:
+                      0:
+                        material: NETHERITE_SWORD
+                      39:
+                        material: NETHERITE_HELMET
+                """);
+        YamlConfiguration legacyConfig = new YamlConfiguration();
+        legacyConfig.loadFromString("""
+                kit:
+                  caps:
+                    BAKED_POTATO: 32
+                """);
+        legacyConfig.setDefaults(bundledDefaults);
+
+        assertTrue(KitSnapshot.migrateMissingSnapshotFromDefaults(legacyConfig));
+        assertEquals("NETHERITE_SWORD", legacyConfig.getString("kit.default-loadout.slots.0.material"));
+        assertEquals("NETHERITE_HELMET", legacyConfig.getString("kit.default-loadout.slots.39.material"));
+        assertTrue(KitSnapshot.findConfigurationProblems(legacyConfig).isEmpty());
+        assertTrue(!KitSnapshot.migrateMissingSnapshotFromDefaults(legacyConfig));
+    }
+
+    @Test
+    void doesNotOverwriteAnExplicitlyEmptySnapshot() throws Exception {
+        YamlConfiguration bundledDefaults = new YamlConfiguration();
+        bundledDefaults.loadFromString("""
+                kit:
+                  default-loadout:
+                    slots:
+                      0:
+                        material: NETHERITE_SWORD
+                """);
+        YamlConfiguration explicitConfig = new YamlConfiguration();
+        explicitConfig.createSection("kit.default-loadout.slots");
+        explicitConfig.setDefaults(bundledDefaults);
+
+        assertTrue(!KitSnapshot.migrateMissingSnapshotFromDefaults(explicitConfig));
+        assertEquals(
+                List.of("kit.default-loadout.slots must contain at least one configured slot"),
+                KitSnapshot.findConfigurationProblems(explicitConfig)
         );
     }
 
