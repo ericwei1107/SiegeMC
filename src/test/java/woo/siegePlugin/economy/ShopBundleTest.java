@@ -64,7 +64,15 @@ class ShopBundleTest {
     }
 
     @Test
-    void newBundlesHaveSafeFallbackPricesForExistingConfigurations() {
+    void everyBundleHasASafeFallbackPriceForExistingConfigurations() {
+        assertEquals(8L, ShopBundle.COBBLESTONE.defaultPrice());
+        assertEquals(24L, ShopBundle.GOLDEN_APPLES.defaultPrice());
+        assertEquals(30L, ShopBundle.COBWEBS.defaultPrice());
+        assertEquals(12L, ShopBundle.RAILS.defaultPrice());
+        assertEquals(120L, ShopBundle.BOW.defaultPrice());
+        assertEquals(18L, ShopBundle.ARROWS.defaultPrice());
+        assertEquals(240L, ShopBundle.TRIDENT.defaultPrice());
+        assertEquals(60L, ShopBundle.TNT_MINECART.defaultPrice());
         assertEquals(30L, ShopBundle.ENDER_PEARLS.defaultPrice());
         assertEquals(12L, ShopBundle.STEAK.defaultPrice());
         assertEquals(300L, ShopBundle.EXPERIENCE_BOTTLES.defaultPrice());

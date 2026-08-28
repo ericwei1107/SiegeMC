@@ -33,9 +33,6 @@ public final class KitSnapshot {
 
     public static KitSnapshot fromConfig(FileConfiguration config) {
         ParsedSnapshot parsed = parse(config);
-        if (!parsed.problems().isEmpty()) {
-            throw new IllegalArgumentException(String.join("; ", parsed.problems()));
-        }
         return new KitSnapshot(parsed.slots());
     }
 

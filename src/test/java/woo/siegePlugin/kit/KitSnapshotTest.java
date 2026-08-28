@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class KitSnapshotTest {
@@ -93,7 +92,7 @@ class KitSnapshotTest {
         assertTrue(problems.stream().anyMatch(problem -> problem.contains("positive whole-number level")));
         assertTrue(problems.stream().anyMatch(problem -> problem.contains("only valid for potion")));
         assertTrue(problems.stream().anyMatch(problem -> problem.contains("is unknown")));
-        assertThrows(IllegalArgumentException.class, () -> KitSnapshot.fromConfig(config));
+        assertEquals("NETHERITE_SWORD", KitSnapshot.fromConfig(config).slots().get(1).material());
     }
 
     @Test
