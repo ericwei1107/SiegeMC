@@ -26,17 +26,20 @@ public final class MinecartPlacementListener implements Listener {
     private final MinecartCooldownService cooldowns;
     private final MinecartArenaProtection arenaProtection;
     private final MinecartSettings settings;
+    private final java.util.function.Predicate<Player> battlefieldFighter;
 
     public MinecartPlacementListener(
             SiegeMinecartMarker marker,
             MinecartCooldownService cooldowns,
             MinecartArenaProtection arenaProtection,
-            MinecartSettings settings
+            MinecartSettings settings,
+            java.util.function.Predicate<Player> battlefieldFighter
     ) {
         this.marker = marker;
         this.cooldowns = cooldowns;
         this.arenaProtection = arenaProtection;
         this.settings = settings;
+        this.battlefieldFighter = battlefieldFighter;
     }
 
     /** Cancels before the successful-placement monitor observes the event. */
@@ -52,9 +55,14 @@ public final class MinecartPlacementListener implements Listener {
         }
 
         ItemStack usedItem = player.getInventory().getItem(event.getHand());
+        if (marker.isMarked(usedItem) && !battlefieldFighter.test(player)) {
+            event.setCancelled(true);
+            player.sendMessage("Siege TNT minecarts can only be placed while you are in the active siege.");
+            return;
+        }
         if (marker.isMarked(usedItem) && !arenaProtection.isReady()) {
             event.setCancelled(true);
-            player.sendMessage("Siege TNT minecarts are unavailable until an administrator saves an arena snapshot.");
+            player.sendMessage("Siege TNT minecarts are unavailable while no active map boundary is published.");
             return;
         }
 

@@ -16,6 +16,8 @@ import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.ShopMenu;
 import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.state.PlayerStateTransitionService;
+import woo.siegePlugin.round.RotationCoordinator;
+import woo.siegePlugin.round.RoundPhase;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -34,6 +36,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final CurrencyService currencyService;
     private final KitEditorListener kitEditorListener;
     private final Logger logger;
+    private final RotationCoordinator rotation;
 
     public SiegeCommand(
             TownyAdapter townyAdapter,
@@ -45,6 +48,21 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             KitEditorListener kitEditorListener,
             Logger logger
     ) {
+        this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
+                adminCommand, currencyService, kitEditorListener, logger, null);
+    }
+
+    public SiegeCommand(
+            TownyAdapter townyAdapter,
+            TeamSwitchService teamSwitchService,
+            TeamDisplayService teamDisplayService,
+            PlayerStateTransitionService playerStateTransitionService,
+            SiegeAdminCommand adminCommand,
+            CurrencyService currencyService,
+            KitEditorListener kitEditorListener,
+            Logger logger,
+            RotationCoordinator rotation
+    ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
@@ -53,6 +71,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         this.currencyService = currencyService;
         this.kitEditorListener = kitEditorListener;
         this.logger = logger;
+        this.rotation = rotation;
     }
 
     @Override
@@ -104,12 +123,17 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             player.sendMessage("You do not have permission to spectate the siege.");
             return true;
         }
+        if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            player.sendMessage("Spectator mode is available only inside an active siege.");
+            return true;
+        }
         switch (playerStateTransitionService.enterSpectator(player)) {
             case STARTED -> player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
             case SPECTATOR_CONTEXT -> player.sendMessage("You are already spectating the siege.");
             case COMBAT_TAGGED -> player.sendMessage("You cannot spectate while combat-tagged.");
             case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot spectate during an active capture session.");
             case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
+            case NOT_IN_SIEGE -> player.sendMessage("Join the active siege before entering spectator mode.");
             default -> player.sendMessage("Spectator mode could not be entered. Please contact an administrator.");
         }
         return true;
@@ -122,6 +146,10 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         }
         if (!player.hasPermission("siege.rejoin")) {
             player.sendMessage("You do not have permission to rejoin the siege.");
+            return true;
+        }
+        if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            player.sendMessage("You can rejoin combat only while a siege is active.");
             return true;
         }
         try {
@@ -151,6 +179,20 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        // Joining is phase-explicit: the coordinator decides whether this means
+        // entering the live round, queueing for the next one, or waiting.
+        if (rotation != null) {
+            switch (rotation.requestJoin(player.getUniqueId())) {
+                case JOINED, QUEUED -> {
+                    // The coordinator reports the outcome once its durable write lands.
+                }
+                case TEMPORARILY_UNAVAILABLE -> player.sendMessage(
+                        "The siege is changing over right now. Try /siege join again in a moment."
+                );
+            }
+            return true;
+        }
+
         try {
             switch (playerStateTransitionService.enterSiegeFromLobby(player)) {
                 case STARTED -> {
@@ -177,6 +219,11 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         }
         if (!player.hasPermission("siege.lobby")) {
             player.sendMessage("You do not have permission to return to the lobby.");
+            return true;
+        }
+
+        if (rotation != null && rotation.goToLobby(player.getUniqueId())) {
+            player.sendMessage("You are now waiting in the lobby for the next siege.");
             return true;
         }
 
@@ -222,6 +269,10 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             player.sendMessage("You do not have permission to use the siege shop.");
             return true;
         }
+        if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            player.sendMessage("The siege shop is closed between matches.");
+            return true;
+        }
 
         ShopMenu.open(player, currencyService);
         return true;
@@ -257,6 +308,10 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         }
         if (!player.hasPermission("siege.switch")) {
             player.sendMessage("You do not have permission to switch siege teams.");
+            return true;
+        }
+        if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            player.sendMessage("Teams can be changed only while a siege is active.");
             return true;
         }
         if (args.length != 2) {

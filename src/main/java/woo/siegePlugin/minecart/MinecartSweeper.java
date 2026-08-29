@@ -24,17 +24,18 @@ public final class MinecartSweeper {
     private static final Duration SWEEP_INTERVAL = Duration.ofSeconds(30L);
 
     private final JavaPlugin plugin;
-    private final String worldName;
+    private String worldName;
     private final Duration stationaryCleanupThreshold;
     private final Clock clock;
     private final StationaryMinecartTracker stationaryCarts = new StationaryMinecartTracker();
 
     private BukkitTask task;
 
-    public MinecartSweeper(JavaPlugin plugin, String worldName, Duration stationaryCleanupThreshold) {
-        this(plugin, worldName, stationaryCleanupThreshold, Clock.systemUTC());
+    public MinecartSweeper(JavaPlugin plugin, Duration stationaryCleanupThreshold) {
+        this(plugin, null, stationaryCleanupThreshold, Clock.systemUTC());
     }
 
+    /** {@code worldName} stays null until a round publishes its active map. */
     MinecartSweeper(JavaPlugin plugin, String worldName, Duration stationaryCleanupThreshold, Clock clock) {
         this.plugin = plugin;
         this.worldName = worldName;
@@ -52,6 +53,11 @@ public final class MinecartSweeper {
             task.cancel();
             task = null;
         }
+        stationaryCarts.clear();
+    }
+
+    public void rebind(String worldName) {
+        this.worldName = worldName;
         stationaryCarts.clear();
     }
 

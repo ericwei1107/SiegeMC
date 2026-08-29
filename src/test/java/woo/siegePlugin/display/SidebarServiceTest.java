@@ -8,7 +8,6 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 import woo.siegePlugin.team.Team;
 
-import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -16,53 +15,50 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class SidebarServiceTest {
 
     @Test
-    void buildsTheEightEntriesBelowTheObjectiveTitle() {
+    void buildsContinuousRoundEntriesWithoutAnActivityTimer() {
         YamlConfiguration config = sidebarConfig();
         SidebarSnapshot snapshot = SidebarSnapshot.initial()
+                .withRound("Siege of Kazan", 10_000L)
                 .withScores(120, 90)
                 .withBannerControl(Team.RED, 3)
-                .withSessionPoints(40, 20)
-                .withCycleTimeRemaining(Duration.ofMinutes(12).plusSeconds(5));
-
-        List<String> lines = SidebarService.buildLines(
-                        snapshot,
-                        SidebarSettings.fromConfig(config),
-                        TeamIdentityColors.fromConfig(config)
-                ).stream()
-                .map(PlainTextComponentSerializer.plainText()::serialize)
-                .toList();
+                .withSessionPoints(40, 20);
 
         assertEquals(List.of(
+                "Map: Siege of Kazan",
                 "ATK: Red Team",
                 "DEF: Blue Team",
                 "Red points: 120",
                 "Blue points: 90",
+                "Target: 10000",
                 "Banner Control: Red Team (3)",
-                "ATK BAT Points: 40",
-                "DEF BAT Points: 20",
-                "BAT Time Left: 12:05"
-        ), lines);
+                "ATK Banner Points: 40",
+                "DEF Banner Points: 20"
+        ), plainLines(snapshot, config));
     }
 
     @Test
-    void initialStateShowsTruthfulPlaceholdersForFutureSystems() {
+    void rebindingToANewRoundReplacesTheMapAndTargetWithoutTouchingScores() {
         YamlConfiguration config = sidebarConfig();
-        List<String> lines = SidebarService.buildLines(
-                        SidebarSnapshot.initial(),
-                        SidebarSettings.fromConfig(config),
-                        TeamIdentityColors.fromConfig(config)
-                ).stream()
-                .map(PlainTextComponentSerializer.plainText()::serialize)
-                .toList();
+        SidebarSnapshot rebound = SidebarSnapshot.initial()
+                .withRound("Siege of Kazan", 10_000L)
+                .withScores(120, 90)
+                .withRound("Siege of Murmansk", 5_000L);
 
-        assertEquals("Banner Control: None (0)", lines.get(4));
-        assertEquals("BAT Time Left: Not started", lines.get(7));
+        List<String> lines = plainLines(rebound, config);
+        assertEquals("Map: Siege of Murmansk", lines.getFirst());
+        assertEquals("Target: 5000", lines.get(5));
+        assertEquals("Red points: 120", lines.get(3));
     }
 
     @Test
-    void formatsLongCycleDurations() {
-        assertEquals("45:00", SidebarService.formatDuration(Duration.ofMinutes(45)));
-        assertEquals("1:02:03", SidebarService.formatDuration(Duration.ofHours(1).plusMinutes(2).plusSeconds(3)));
+    void initialStateShowsTruthfulPlaceholdersBeforeTheFirstMapIsPublished() {
+        YamlConfiguration config = sidebarConfig();
+        List<String> lines = plainLines(SidebarSnapshot.initial(), config);
+
+        assertEquals("Map: Preparing…", lines.getFirst());
+        assertEquals("Target: —", lines.get(5));
+        assertEquals("Banner Control: None (0)", lines.get(6));
+        assertEquals(9, lines.size());
     }
 
     @Test
@@ -78,8 +74,18 @@ class SidebarServiceTest {
         assertEquals(NamedTextColor.GOLD, title.color());
         assertEquals(TextDecoration.State.TRUE, title.decoration(TextDecoration.BOLD));
         assertEquals(NamedTextColor.GOLD, lines.getFirst().color());
-        assertEquals(NamedTextColor.GOLD, lines.get(4).color());
-        assertEquals(NamedTextColor.GOLD, lines.getLast().children().getFirst().color());
+        assertEquals(NamedTextColor.GOLD, lines.get(6).color());
+        assertEquals(NamedTextColor.GOLD, lines.getLast().color());
+    }
+
+    private static List<String> plainLines(SidebarSnapshot snapshot, YamlConfiguration config) {
+        return SidebarService.buildLines(
+                        snapshot,
+                        SidebarSettings.fromConfig(config),
+                        TeamIdentityColors.fromConfig(config)
+                ).stream()
+                .map(PlainTextComponentSerializer.plainText()::serialize)
+                .toList();
     }
 
     private static YamlConfiguration sidebarConfig() {

@@ -137,6 +137,12 @@ public final class TownyAdapter {
         return getTown(team).getResidents().size();
     }
 
+    public int getOnlinePlayerCount(Team team) {
+        return (int) org.bukkit.Bukkit.getOnlinePlayers().stream()
+                .filter(player -> getPlayerTeam(player).filter(team::equals).isPresent())
+                .count();
+    }
+
     /** Spectator residents intentionally do not map to a competitive team. */
     public boolean isSpectator(Player player) {
         Resident resident = townyApi.getResident(player);

@@ -1,32 +1,35 @@
 package woo.siegePlugin.minecart;
 
 import org.bukkit.block.Block;
-import woo.siegePlugin.arena.ArenaRegion;
+import woo.siegePlugin.map.MapBounds;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
-/** The active saved snapshot's X/Z footprint, used at minecart detonation. */
+/** The active map manifest's X/Z footprint, used at minecart detonation. */
 public final class MinecartArenaProtection {
 
-    private ArenaRegion region;
+    private String activeWorldName;
+    private MapBounds activeBounds;
 
-    public MinecartArenaProtection(Optional<ArenaRegion> initialRegion) {
-        this.region = initialRegion.orElse(null);
+    public MinecartArenaProtection() {
     }
 
     public boolean isReady() {
-        return region != null;
-    }
-
-    public void update(ArenaRegion savedRegion) {
-        this.region = Objects.requireNonNull(savedRegion, "savedRegion");
+        return activeBounds != null;
     }
 
     public boolean protects(String worldName, int x, int z) {
-        ArenaRegion current = region;
-        return current != null && current.containsFootprint(worldName, x, z);
+        if (activeBounds != null && Objects.equals(activeWorldName, worldName)) {
+            return x >= activeBounds.minX() && x <= activeBounds.maxX()
+                    && z >= activeBounds.minZ() && z <= activeBounds.maxZ();
+        }
+        return false;
+    }
+
+    public void rebind(String worldName, MapBounds bounds) {
+        this.activeWorldName = Objects.requireNonNull(worldName, "worldName");
+        this.activeBounds = Objects.requireNonNull(bounds, "bounds");
     }
 
     /** Removes protected blocks only; the explosion and its entity damage stay active. */

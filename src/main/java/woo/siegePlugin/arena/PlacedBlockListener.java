@@ -9,8 +9,9 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import woo.siegePlugin.team.TownyAdapter;
 
 import java.util.Objects;
-import java.util.Optional;
-import java.util.function.Supplier;
+import woo.siegePlugin.round.ActiveCombatEligibility;
+import woo.siegePlugin.round.ActiveRoundProvider;
+import woo.siegePlugin.map.MapBounds;
 
 /**
  * Records successful wilderness placements inside the reset region and lets
@@ -20,28 +21,34 @@ public final class PlacedBlockListener implements Listener {
 
     private final PlacedBlockTracker tracker;
     private final TownyAdapter townyAdapter;
-    private final Supplier<Optional<ArenaRegion>> regionSupplier;
+    private final ActiveRoundProvider rounds;
+    private final ActiveCombatEligibility eligibility;
 
     public PlacedBlockListener(
             PlacedBlockTracker tracker,
             TownyAdapter townyAdapter,
-            Supplier<Optional<ArenaRegion>> regionSupplier
+            ActiveRoundProvider rounds,
+            ActiveCombatEligibility eligibility
     ) {
         this.tracker = Objects.requireNonNull(tracker, "tracker");
         this.townyAdapter = Objects.requireNonNull(townyAdapter, "townyAdapter");
-        this.regionSupplier = Objects.requireNonNull(regionSupplier, "regionSupplier");
+        this.rounds = Objects.requireNonNull(rounds, "rounds");
+        this.eligibility = Objects.requireNonNull(eligibility, "eligibility");
     }
 
     /** Records only placements that have survived other protection listeners. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onBlockPlace(BlockPlaceEvent event) {
+        // Only a fighter actually in the round leaves breakable cover behind.
+        if (!eligibility.isEligibleFighter(event.getPlayer())) {
+            return;
+        }
         Block block = event.getBlockPlaced();
-        if (isOpenBattlefield(
-                regionSupplier.get().orElse(null),
-                block.getWorld().getName(),
-                block.getX(), block.getY(), block.getZ(),
-                townyAdapter.isWilderness(block.getLocation())
-        )) {
+        boolean open = rounds.current().map(context -> isOpenBattlefield(
+                context.bounds(), context.world().getName(), block.getWorld().getName(),
+                block.getX(), block.getZ(), townyAdapter.isWilderness(block.getLocation())
+        )).orElse(false);
+        if (open) {
             tracker.record(block);
         }
     }
@@ -61,15 +68,16 @@ public final class PlacedBlockListener implements Listener {
     }
 
     static boolean isOpenBattlefield(
-            ArenaRegion region,
-            String worldName,
+            MapBounds bounds,
+            String activeWorldName,
+            String blockWorldName,
             int x,
-            int y,
             int z,
             boolean isWilderness
     ) {
-        return region != null
-                && isWilderness
-                && region.contains(worldName, x, y, z);
+        return isWilderness
+                && activeWorldName.equals(blockWorldName)
+                && x >= bounds.minX() && x <= bounds.maxX()
+                && z >= bounds.minZ() && z <= bounds.maxZ();
     }
 }

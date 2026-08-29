@@ -33,9 +33,9 @@ public final class TeamAssignmentService {
 
     /** Rejoin uses this directly, deliberately bypassing switch cooldown rules. */
     public Team assignToSmallerTeam(Player player) {
-        int redResidents = townyAdapter.getResidentCount(Team.RED);
-        int blueResidents = townyAdapter.getResidentCount(Team.BLUE);
-        Team destination = selectSmallerTeam(redResidents, blueResidents);
+        int redOnline = townyAdapter.getOnlinePlayerCount(Team.RED);
+        int blueOnline = townyAdapter.getOnlinePlayerCount(Team.BLUE);
+        Team destination = selectSmallerTeam(redOnline, blueOnline);
 
         townyAdapter.setPlayerTeam(player, destination);
         return destination;

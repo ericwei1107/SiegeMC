@@ -22,6 +22,16 @@ public final class TeamSwitchService {
     private final Clock clock;
     private final Map<UUID, Instant> lastSwitches = new HashMap<>();
 
+    /**
+     * Headcount used for the balance check. Defaults to Towny residency, but
+     * the plugin binds this to the durable roster's online battlefield fighters:
+     * a resident sitting in the lobby or offline should not make the teams look
+     * balanced when the battlefield is not.
+     */
+    private java.util.function.ToIntFunction<Team> fighterHeadcount;
+    private java.util.function.BiConsumer<UUID, Team> switchHandler = (playerId, team) -> {
+    };
+
     public TeamSwitchService(
             TownyAdapter townyAdapter,
             CombatTagStatus combatTagStatus,
@@ -43,6 +53,17 @@ public final class TeamSwitchService {
         this.captureSessionStatus = captureSessionStatus;
         this.spawnLocations = spawnLocations;
         this.clock = clock;
+        this.fighterHeadcount = townyAdapter::getResidentCount;
+    }
+
+    /** Binds the balance check to live battlefield headcounts. */
+    public void setFighterHeadcount(java.util.function.ToIntFunction<Team> headcount) {
+        this.fighterHeadcount = java.util.Objects.requireNonNull(headcount, "headcount");
+    }
+
+    /** Notified after a successful switch so the durable roster can follow. */
+    public void setTeamSwitchHandler(java.util.function.BiConsumer<UUID, Team> handler) {
+        this.switchHandler = java.util.Objects.requireNonNull(handler, "handler");
     }
 
     public TeamSwitchResult switchTeam(Player player, Team destination) {
@@ -65,9 +86,9 @@ public final class TeamSwitchService {
             return TeamSwitchResult.of(TeamSwitchResult.Status.CAPTURE_SESSION_ACTIVE);
         }
 
-        int currentResidents = townyAdapter.getResidentCount(currentTeam);
-        int destinationResidents = townyAdapter.getResidentCount(destination);
-        if (wouldCreateTwoPlayerLead(currentResidents, destinationResidents)) {
+        int currentFighters = fighterHeadcount.applyAsInt(currentTeam);
+        int destinationFighters = fighterHeadcount.applyAsInt(destination);
+        if (wouldCreateTwoPlayerLead(currentFighters, destinationFighters)) {
             return TeamSwitchResult.of(TeamSwitchResult.Status.WOULD_UNBALANCE_TEAMS);
         }
 
@@ -76,6 +97,7 @@ public final class TeamSwitchService {
         captureSessionStatus.clearParticipation(player);
 
         boolean teleported = player.teleport(spawnLocations.get(destination));
+        switchHandler.accept(player.getUniqueId(), destination);
         return TeamSwitchResult.switched(teleported);
     }
 

@@ -10,7 +10,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import woo.siegePlugin.display.SidebarService;
-import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.round.RoundActivityStatus;
 import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TownyAdapter;
 
@@ -34,13 +34,20 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     private final JavaPlugin plugin;
     private final TownyAdapter townyAdapter;
     private final SidebarService sidebarService;
-    private final CaptureBanner banner;
+    private CaptureBanner banner;
     private final CaptureBossBars bossBars;
     private final CaptureControl control = new CaptureControl();
     private final Map<UUID, CaptureSession> sessions = new LinkedHashMap<>();
     private final Clock clock;
-    private final CaptureSettings settings;
-    private final SiegePhaseStatus phaseStatus;
+    private CaptureSettings settings;
+    private final RoundActivityStatus phaseStatus;
+
+    /**
+     * Battlefield-presence gate. Capture progress must require the same
+     * eligibility as scoring, or a player in the lobby standing at matching
+     * coordinates could accrue banner control.
+     */
+    private java.util.function.Predicate<Player> battlefieldFighter = player -> true;
 
     private BukkitTask task;
     private boolean suspended;
@@ -51,7 +58,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
             SidebarService sidebarService,
             CaptureBanner banner,
             CaptureSettings settings,
-            SiegePhaseStatus phaseStatus
+            RoundActivityStatus phaseStatus
     ) {
         this(plugin, townyAdapter, sidebarService, banner, settings, phaseStatus, Clock.systemUTC());
     }
@@ -62,7 +69,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
             SidebarService sidebarService,
             CaptureBanner banner,
             CaptureSettings settings,
-            SiegePhaseStatus phaseStatus,
+            RoundActivityStatus phaseStatus,
             Clock clock
     ) {
         this.plugin = plugin;
@@ -115,6 +122,13 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         return control.controllerIds();
     }
 
+    /** Everyone currently contributing capture time, including completed controllers. */
+    public Set<UUID> bannerParticipantIds() {
+        java.util.LinkedHashSet<UUID> playerIds = new java.util.LinkedHashSet<>(sessions.keySet());
+        playerIds.addAll(control.controllerIds());
+        return Set.copyOf(playerIds);
+    }
+
     @Override
     public void clearParticipation(Player player) {
         sessions.remove(player.getUniqueId());
@@ -150,6 +164,15 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
 
     public CaptureBanner banner() {
         return banner;
+    }
+
+    /** Atomically switches capture geometry after a prepared round is loaded. */
+    public void rebind(Location capturePoint, int radiusBlocks) {
+        resetControl();
+        banner.moveTo(capturePoint);
+        settings = new CaptureSettings(radiusBlocks, settings.sessionDuration());
+        suspended = false;
+        banner.ensurePresent();
     }
 
     /**
@@ -276,7 +299,15 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         bossBars.update(player, name, session.progress(now), bossBarColor(session.side()));
     }
 
+    /** Binds the shared active-combat eligibility policy. */
+    public void setBattlefieldFighterCheck(java.util.function.Predicate<Player> check) {
+        this.battlefieldFighter = java.util.Objects.requireNonNull(check, "check");
+    }
+
     private boolean isEligible(Player player, Team team, Location bannerLocation) {
+        if (!battlefieldFighter.test(player)) {
+            return false;
+        }
         return CaptureEligibility.isEligible(
                 player.isOnline(),
                 player.isDead(),

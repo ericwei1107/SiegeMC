@@ -2,74 +2,79 @@ package woo.siegePlugin.display;
 
 import woo.siegePlugin.team.Team;
 
-import java.time.Duration;
 import java.util.Optional;
 
 public record SidebarSnapshot(
+        String mapDisplayName,
+        long scoreLimit,
         long redScore,
         long blueScore,
         Optional<Team> controllingTeam,
         int controllerCount,
         long redSessionPoints,
-        long blueSessionPoints,
-        Optional<Duration> cycleTimeRemaining
+        long blueSessionPoints
 ) {
 
     public SidebarSnapshot {
         controllingTeam = controllingTeam == null ? Optional.empty() : controllingTeam;
-        cycleTimeRemaining = cycleTimeRemaining == null ? Optional.empty() : cycleTimeRemaining;
+        mapDisplayName = mapDisplayName == null ? "" : mapDisplayName;
     }
 
     public static SidebarSnapshot initial() {
-        return new SidebarSnapshot(0, 0, Optional.empty(), 0, 0, 0, Optional.empty());
+        return new SidebarSnapshot("", 0, 0, 0, Optional.empty(), 0, 0, 0);
     }
 
-    public SidebarSnapshot withScores(long redScore, long blueScore) {
+    /** Rebinds the sidebar to a newly published round. */
+    public SidebarSnapshot withRound(String mapDisplayName, long scoreLimit) {
         return new SidebarSnapshot(
+                mapDisplayName,
+                scoreLimit,
                 redScore,
                 blueScore,
                 controllingTeam,
                 controllerCount,
                 redSessionPoints,
-                blueSessionPoints,
-                cycleTimeRemaining
+                blueSessionPoints
+        );
+    }
+
+    public SidebarSnapshot withScores(long redScore, long blueScore) {
+        return new SidebarSnapshot(
+                mapDisplayName,
+                scoreLimit,
+                redScore,
+                blueScore,
+                controllingTeam,
+                controllerCount,
+                redSessionPoints,
+                blueSessionPoints
         );
     }
 
     public SidebarSnapshot withBannerControl(Team team, int controllerCount) {
-        int normalizedCount = team == null ? 0 : controllerCount;
+        int normalizedCount = team == null ? 0 : Math.max(0, controllerCount);
         return new SidebarSnapshot(
+                mapDisplayName,
+                scoreLimit,
                 redScore,
                 blueScore,
                 Optional.ofNullable(team),
                 normalizedCount,
                 redSessionPoints,
-                blueSessionPoints,
-                cycleTimeRemaining
+                blueSessionPoints
         );
     }
 
     public SidebarSnapshot withSessionPoints(long redSessionPoints, long blueSessionPoints) {
         return new SidebarSnapshot(
+                mapDisplayName,
+                scoreLimit,
                 redScore,
                 blueScore,
                 controllingTeam,
                 controllerCount,
                 redSessionPoints,
-                blueSessionPoints,
-                cycleTimeRemaining
-        );
-    }
-
-    public SidebarSnapshot withCycleTimeRemaining(Duration remaining) {
-        return new SidebarSnapshot(
-                redScore,
-                blueScore,
-                controllingTeam,
-                controllerCount,
-                redSessionPoints,
-                blueSessionPoints,
-                Optional.ofNullable(remaining)
+                blueSessionPoints
         );
     }
 }

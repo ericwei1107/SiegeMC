@@ -10,13 +10,13 @@ import java.util.Optional;
 public final class PotionStorageRegistry {
 
     private final Map<PotionStorageKey, PotionStorage> byKey = new LinkedHashMap<>();
-    private final Map<ChestLocation, PotionStorage> byChestHalf = new LinkedHashMap<>();
+    private final Map<MapChestLocation, PotionStorage> byChestHalf = new LinkedHashMap<>();
 
     public Optional<PotionStorage> find(PotionStorageKey key) {
         return Optional.ofNullable(byKey.get(key));
     }
 
-    public Optional<PotionStorage> find(ChestLocation location) {
+    public Optional<PotionStorage> find(MapChestLocation location) {
         return Optional.ofNullable(byChestHalf.get(location));
     }
 

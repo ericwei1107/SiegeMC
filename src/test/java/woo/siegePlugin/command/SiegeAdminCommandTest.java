@@ -15,26 +15,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SiegeAdminCommandTest {
 
     @Test
-    void resetscoresRequiresItsDedicatedPermission() {
+    void retiredResetCommandsAreNotSuggested() {
         SiegeAdminCommand command = command();
         List<String> messages = new ArrayList<>();
         CommandSender sender = sender(true, false, messages);
 
         List<String> completions = command.tabComplete(sender, new String[]{"admin", "reset"});
-        assertEquals(List.of("resetmap"), completions);
-        assertFalse(completions.contains("resetscores"));
+        assertEquals(List.of(), completions);
         assertTrue(command.handle(sender, "siege", new String[]{"admin", "resetscores", "confirm"}));
-        assertEquals(List.of("You do not have permission to reset siege scores."), messages);
+        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation>"), messages);
     }
 
     @Test
-    void resetScoresAppearsForAnAuthorisedAdmin() {
+    void rotationCommandsReplaceManualResetWorkflows() {
         SiegeAdminCommand command = command();
         CommandSender sender = sender(true, true, new ArrayList<>());
 
         assertEquals(
-                List.of("resetscores", "resetmap"),
-                command.tabComplete(sender, new String[]{"admin", "reset"})
+                List.of("rotation"),
+                command.tabComplete(sender, new String[]{"admin", "rot"})
         );
     }
 
@@ -65,7 +64,7 @@ class SiegeAdminCommandTest {
     }
 
     private static SiegeAdminCommand command() {
-        return new SiegeAdminCommand(null, null, null, null, null, null, null, Logger.getAnonymousLogger());
+        return new SiegeAdminCommand(null, null, null, null, Logger.getAnonymousLogger(), null, null);
     }
 
     private static CommandSender sender(boolean admin, boolean resetScores, List<String> messages) {
@@ -75,8 +74,7 @@ class SiegeAdminCommandTest {
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("hasPermission")) {
                         String permission = String.valueOf(arguments[0]);
-                        return permission.equals(SiegeAdminCommand.PERMISSION) ? admin
-                                : permission.equals(SiegeAdminCommand.RESET_SCORES_PERMISSION) && resetScores;
+                        return permission.equals(SiegeAdminCommand.PERMISSION) && admin;
                     }
                     if (method.getName().equals("sendMessage")) {
                         messages.add(String.valueOf(arguments[0]));

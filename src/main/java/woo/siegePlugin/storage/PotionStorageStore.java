@@ -38,8 +38,8 @@ public final class PotionStorageStore {
                 if (potion == null || !PotionStorageTemplates.isPotion(potion)) {
                     throw new IllegalArgumentException("potion is missing or invalid");
                 }
-                ChestLocation first = location(config, path + ".first");
-                ChestLocation second = location(config, path + ".second");
+                MapChestLocation first = location(config, path + ".first");
+                MapChestLocation second = location(config, path + ".second");
                 registry.add(new PotionStorage(id, new PotionStorageKey(first, second), team, potion));
             } catch (RuntimeException exception) {
                 logger.warning("Ignoring invalid potion storage '" + rawId + "': " + exception.getMessage());
@@ -60,16 +60,16 @@ public final class PotionStorageStore {
         config.save(file);
     }
 
-    private static ChestLocation location(YamlConfiguration config, String path) {
-        String world = config.getString(path + ".world");
+    private static MapChestLocation location(YamlConfiguration config, String path) {
+        String world = config.getString(path + ".map-id", config.getString(path + ".world"));
         if (world == null) {
             throw new IllegalArgumentException(path + ".world is missing");
         }
-        return new ChestLocation(world, config.getInt(path + ".x"), config.getInt(path + ".y"), config.getInt(path + ".z"));
+        return new MapChestLocation(world, config.getInt(path + ".x"), config.getInt(path + ".y"), config.getInt(path + ".z"));
     }
 
-    private static void saveLocation(YamlConfiguration config, String path, ChestLocation location) {
-        config.set(path + ".world", location.worldName());
+    private static void saveLocation(YamlConfiguration config, String path, MapChestLocation location) {
+        config.set(path + ".map-id", location.mapId());
         config.set(path + ".x", location.x());
         config.set(path + ".y", location.y());
         config.set(path + ".z", location.z());

@@ -1,9 +1,7 @@
 package woo.siegePlugin.minecart;
 
 import org.junit.jupiter.api.Test;
-import woo.siegePlugin.arena.ArenaRegion;
-
-import java.util.Optional;
+import woo.siegePlugin.map.MapBounds;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -11,17 +9,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class MinecartArenaProtectionTest {
 
     @Test
-    void startsUnavailableWithoutAnActiveSnapshot() {
-        MinecartArenaProtection protection = new MinecartArenaProtection(Optional.empty());
+    void startsUnavailableWithoutAnActiveMap() {
+        MinecartArenaProtection protection = new MinecartArenaProtection();
 
         assertFalse(protection.isReady());
         assertFalse(protection.protects("siegeworld", 0, 0));
     }
 
     @Test
-    void protectsTheSavedXZFootprintAtEveryHeight() {
-        ArenaRegion region = ArenaRegion.between("siegeworld", -42, -60, -63, 85, 369, 111);
-        MinecartArenaProtection protection = new MinecartArenaProtection(Optional.of(region));
+    void protectsThePublishedMapFootprintAtEveryHeight() {
+        MinecartArenaProtection protection = new MinecartArenaProtection();
+        protection.rebind("siegeworld", new MapBounds(-42, -63, 85, 111));
 
         assertTrue(protection.isReady());
         assertTrue(protection.protects("siegeworld", -42, -63));
@@ -31,10 +29,10 @@ class MinecartArenaProtectionTest {
     }
 
     @Test
-    void successfulSnapshotPromotionUpdatesTheActiveFootprint() {
-        MinecartArenaProtection protection = new MinecartArenaProtection(Optional.empty());
+    void contextRebindUpdatesTheActiveFootprint() {
+        MinecartArenaProtection protection = new MinecartArenaProtection();
 
-        protection.update(ArenaRegion.between("siegeworld", 10, 0, 20, 30, 1, 40));
+        protection.rebind("siegeworld", new MapBounds(10, 20, 30, 40));
 
         assertTrue(protection.isReady());
         assertTrue(protection.protects("siegeworld", 10, 40));

@@ -39,6 +39,15 @@ public final class CurrencyService {
     private final Map<UUID, Instant> lastCaptureRewardNotice = new HashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
     private final AtomicBoolean acceptingPurchases = new AtomicBoolean(false);
+    private java.util.function.BooleanSupplier roundActive = () -> true;
+
+    /**
+     * Shop delivery uses the same battlefield-presence rule as scoring, so a
+     * purchase can never be delivered into a lobby or spectator inventory —
+     * including one that crossed the round boundary while its write was in
+     * flight, which is refunded instead.
+     */
+    private java.util.function.Predicate<Player> deliveryEligible = player -> true;
 
     public CurrencyService(
             JavaPlugin plugin,
@@ -88,6 +97,14 @@ public final class CurrencyService {
 
     public CurrencySettings settings() {
         return settings;
+    }
+
+    public void setDeliveryEligibility(java.util.function.Predicate<Player> eligible) {
+        this.deliveryEligible = java.util.Objects.requireNonNull(eligible, "eligible");
+    }
+
+    public void setRoundActiveSupplier(java.util.function.BooleanSupplier supplier) {
+        this.roundActive = java.util.Objects.requireNonNull(supplier, "supplier");
     }
 
     /** Best-known balance for display. Never used to authorise a purchase. */
@@ -189,7 +206,7 @@ public final class CurrencyService {
      * flight; if it no longer fits, the price is refunded.
      */
     public void purchase(Player player, ShopBundle bundle, Consumer<PurchaseOutcome> outcome) {
-        if (!acceptingPurchases.get()) {
+        if (!acceptingPurchases.get() || !roundActive.getAsBoolean() || !deliveryEligible.test(player)) {
             outcome.accept(PurchaseOutcome.FAILED);
             return;
         }
@@ -225,7 +242,8 @@ public final class CurrencyService {
 
             PurchaseOutboxDao.Reservation accepted = reservation.orElseThrow();
             cachedBalances.put(playerId, accepted.remainingBalance());
-            if (!acceptingPurchases.get() || !player.isOnline() || !InventorySpace.hasRoomFor(player.getInventory(), item)) {
+            if (!acceptingPurchases.get() || !roundActive.getAsBoolean() || !deliveryEligible.test(player)
+                    || !player.isOnline() || !InventorySpace.hasRoomFor(player.getInventory(), item)) {
                 refund(accepted);
                 outcome.accept(PurchaseOutcome.NO_INVENTORY_SPACE);
                 return;

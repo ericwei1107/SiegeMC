@@ -12,14 +12,43 @@ public final class CanonicalConfig {
 
     private static final Map<String, String> REPLACEMENTS = replacements();
 
+    /**
+     * Blocks that map rotation removed outright. They have no replacement key,
+     * so leaving one behind means the live file was never migrated — fail loudly
+     * rather than silently ignoring an operator's stale settings.
+     */
+    private static final Map<String, String> REMOVED = removed();
+
     private CanonicalConfig() {
     }
 
     public static List<String> findConfigurationProblems(FileConfiguration config) {
-        return REPLACEMENTS.entrySet().stream()
-                .filter(entry -> config.isSet(entry.getKey()))
-                .map(entry -> entry.getKey() + " is retired; use " + entry.getValue())
-                .toList();
+        return java.util.stream.Stream.concat(
+                REPLACEMENTS.entrySet().stream()
+                        .filter(entry -> config.isSet(entry.getKey()))
+                        .map(entry -> entry.getKey() + " is retired; use " + entry.getValue()),
+                REMOVED.entrySet().stream()
+                        .filter(entry -> config.isSet(entry.getKey()))
+                        .map(entry -> entry.getKey() + " is retired; " + entry.getValue())
+        ).toList();
+    }
+
+    private static Map<String, String> removed() {
+        Map<String, String> paths = new LinkedHashMap<>();
+        paths.put(
+                "activity-cycle",
+                "the ACTIVE/BREAK cycle was replaced by finite rounds. Delete this block."
+        );
+        paths.put(
+                "cleanup.map-reset-interval-hours",
+                "in-place arena resets were replaced by clean-copy map rotation. Delete this key."
+        );
+        paths.put(
+                "arena-reset",
+                "arena snapshots were retired with map rotation. Delete this block;"
+                        + " existing snapshot files on disk are left alone for manual cleanup."
+        );
+        return Collections.unmodifiableMap(paths);
     }
 
     private static Map<String, String> replacements() {

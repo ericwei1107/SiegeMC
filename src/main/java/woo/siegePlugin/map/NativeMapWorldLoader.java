@@ -9,6 +9,7 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -61,6 +62,74 @@ public final class NativeMapWorldLoader {
                 });
     }
 
+    /**
+     * Real-path containment, not just lexical: a symlinked template folder that
+     * resolves outside the template root must not be copyable.
+     */
+    public boolean templateExists(SiegeMap map) {
+        Path template = templateRoot.resolve(map.templateFolder()).normalize();
+        if (!template.getParent().equals(templateRoot.normalize())) {
+            return false;
+        }
+        try {
+            Path realTemplate = template.toRealPath();
+            Path realRoot = templateRoot.toRealPath();
+            if (!realTemplate.startsWith(realRoot) || realTemplate.equals(realRoot)) {
+                return false;
+            }
+        } catch (IOException missing) {
+            return false;
+        }
+        return java.nio.file.Files.isDirectory(template)
+                && java.nio.file.Files.isRegularFile(template.resolve("level.dat"));
+    }
+
+    /**
+     * Removes a generated copy known only by name, which is the situation after
+     * a restart: the {@code World} handle is gone but the durable cleanup queue
+     * still remembers the folder.
+     */
+    public CompletableFuture<Void> discard(String runtimeWorldName, String folder) {
+        return onServerThread(() -> {
+            World loaded = Bukkit.getWorld(runtimeWorldName);
+            if (loaded != null) {
+                if (!loaded.getPlayers().isEmpty()) {
+                    throw new IllegalStateException(
+                            "Cannot remove " + runtimeWorldName + " while players remain in it"
+                    );
+                }
+                if (!Bukkit.unloadWorld(loaded, false)) {
+                    throw new IllegalStateException("Bukkit declined to unload " + runtimeWorldName);
+                }
+            }
+            return Path.of(folder);
+        }).thenCompose(this::deleteOnWorker);
+    }
+
+    /**
+     * Generated folders on disk that the caller does not account for. These are
+     * reported for manual review rather than deleted: an operator may be keeping
+     * one deliberately, and automatic deletion of an unrecognised folder is not
+     * a risk worth taking.
+     */
+    public List<String> generatedWorldFolders() {
+        try (java.util.stream.Stream<Path> entries = java.nio.file.Files.list(worldContainer)) {
+            return entries
+                    .filter(java.nio.file.Files::isDirectory)
+                    .map(path -> path.getFileName().toString())
+                    .filter(name -> name.startsWith("siege-active-"))
+                    .sorted()
+                    .toList();
+        } catch (IOException failure) {
+            plugin.getLogger().log(
+                    java.util.logging.Level.WARNING,
+                    "Could not list generated map folders.",
+                    failure
+            );
+            return List.of();
+        }
+    }
+
     public CompletableFuture<Void> unload(ActiveMapWorld activeWorld) {
         Objects.requireNonNull(activeWorld, "activeWorld");
         return onServerThread(() -> {
@@ -75,12 +144,31 @@ public final class NativeMapWorldLoader {
         }).thenCompose(folder -> deleteOnWorker(folder));
     }
 
+    /** Reopens the exact disposable copy recorded by durable ACTIVE state. */
+    public CompletableFuture<ActiveMapWorld> resume(SiegeMap map, String runtimeWorldName) {
+        Objects.requireNonNull(map, "map");
+        Objects.requireNonNull(runtimeWorldName, "runtimeWorldName");
+        if (!runtimeWorldName.startsWith("siege-active-")) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Not a SiegePlugin active world"));
+        }
+        Path folder = worldContainer.resolve(runtimeWorldName).normalize();
+        if (!folder.getParent().equals(worldContainer.normalize()) || !java.nio.file.Files.isDirectory(folder)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Recorded active world is missing"));
+        }
+        return onServerThread(() -> createWorld(map, folder));
+    }
+
     private ActiveMapWorld createWorld(SiegeMap map, Path folder) {
         World world = Bukkit.createWorld(new WorldCreator(folder.getFileName().toString()));
         if (world == null) {
             throw new IllegalStateException("Bukkit could not load copied map world " + folder.getFileName());
         }
-        configure(world);
+        try {
+            configure(world);
+        } catch (RuntimeException failure) {
+            Bukkit.unloadWorld(world, false);
+            throw failure;
+        }
         return new ActiveMapWorld(map, world, folder);
     }
 

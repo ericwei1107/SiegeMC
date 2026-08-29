@@ -46,14 +46,16 @@ scoring:
   tick-interval-seconds: 20
   points-per-controller-per-tick: 10
   kill-reward-points: 150
+  # The first durable award which reaches this value completes the round.
+  winning-score: 10000
 
-activity-cycle:
-  enabled: true
-  active-duration-seconds: 2700
-  break-duration-seconds: 120
+# Clean-copy map rotation.
+rotation:
+  # How long one map copy may take to be copied, loaded, and validated before
+  # the attempt is abandoned. A hung copy must not hold everyone in the lobby.
+  preparation-timeout-seconds: 300
 
 cleanup:
-  map-reset-interval-hours: 6
   minecart-stationary-cleanup-seconds: 300
   minecart-placement-cooldown-seconds: 30
 
@@ -227,9 +229,3 @@ kit:
         amount: 1
         enchantments:
           UNBREAKING: 3
-
-# Set with /siege admin setresetpos1 and setresetpos2, then savesnapshot confirm.
-# Resets stay disabled until a snapshot exists. Snapshot capture and restoration
-# use native structures on the main thread, so keep this bounded on a low-power VPS.
-arena-reset:
-  max-snapshot-blocks: 1000000

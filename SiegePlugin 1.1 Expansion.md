@@ -2,20 +2,23 @@
 
 ## Purpose
 
-This is a future-looking ideas brief, not an approved implementation plan. It records the parts of the `refs/Sieges-master` server snapshot worth considering after the current Stage 4.4 work is stable.
+This is the SiegePlugin 1.1 expansion brief and implementation record. It separates completed working-tree behavior, release gates, and later ideas inspired by the `refs/Sieges-master` server snapshot.
 
 Sieges is a finite, rotating SiegeGame minigame on Paper 1.20.1. SiegePlugin is a Towny-backed Paper 1.21.11 game. Its current persistent-score model was deliberately retained during Stage 4.4 testing, but that testing-only decision is now superseded: SiegePlugin 1.1 will rotate maps and begin each newly rotated map with reset team scores.
 
 Reuse the player-facing ideas below, but do not copy Sieges' legacy plugin stack wholesale.
 
+> **Current priority:** Map rotation and score rollover are implemented in the working tree. Do not enable the five maps publicly until their manifests/template folders are configured and the live-player acceptance checklist passes with four fighters, one spectator, and at least two maps.
+
 ### To do
 
-- Infinite Potion Storages for both sides — Approach A implemented in the working tree; pending live multiplayer staging verification
-- Map implementation
-- Map rotation
+- Infinite Potion Storages for both sides — Approach A implemented; pending live multiplayer staging verification
+- Map implementation — five manifests selected; coordinates/templates still require operator configuration against the commented schema in `maps.yml`
+- Map rotation, score rollover, lobby ceremony, MVPs, two-stage map admission, tolerant launch, and durable recovery — implemented and hardened (attempt tokens, compare-and-set lifecycle writes, roster-authoritative eligibility, durable world cleanup); pending live multiplayer acceptance
 - Lobby Build
-- Kit editing
+- Global curated kit editing — implemented; replacement choices remain operator-configured
 - Client side border walls
+- Book-based tutorial upon first join
 
 ## Supporting plugins and integrations
 
@@ -132,13 +135,14 @@ A rotation failure does **not** replay the completed match, duplicate its winner
 
 ### Rotation state machine
 
-`ACTIVE → COMPLETING → LOBBY_CEREMONY → PREPARING_COPY → REVEAL → ACTIVATING → ACTIVE`
+`BOOTSTRAPPING → ACTIVE → COMPLETING → INTERMISSION → ACTIVATING → ACTIVE`
+
+Any exhausted preparation path enters `RECOVERY`; an administrator can inspect, validate, and retry it without creating a new match. The durable coordinator records its generation, current/prepared map and world, fallback candidates, queue, roster, and deadline so restart recovery cannot duplicate a winner or silently reopen scoring.
 
 - **COMPLETING:** atomically reject new scoring/capture activity, persist the winning match result, and cancel active capture sessions.
-- **LOBBY_CEREMONY:** send players safely to the lobby, announce the winner, and run the countdown.
-- **PREPARING_COPY:** choose a non-repeating validated template, copy it asynchronously to a unique active-world folder while excluding `session.lock` and `uid.dat`, then create/load the world on the main thread with autosave disabled.
-- **REVEAL:** show the selected map name only after its world and manifest are ready.
+- **INTERMISSION:** immediately show winner/final score, category MVPs, Overall MVP, next-map reveal, and a clickable lobby button. Prior fighters/spectators remain queued; unrelated players opt in with `/siege join`; a 40-second sweep forces all queued players to the Adventure-mode lobby while the clean copy loads.
 - **ACTIVATING:** bind every world-dependent service to the active map, spawn teams, create the new 0–0 match record, and reopen scoring.
+- **RECOVERY:** keep the completed match closed and every player in the lobby after all enabled maps (including a fresh previous-map copy last) fail. No empty match is created.
 
 After every player has left the old active world, unload it without saving and delete only its generated active-copy folder. Template folders are never loaded as the match world and are never deleted.
 
@@ -163,14 +167,22 @@ For SiegePlugin 1.1, map rotation is the new round boundary. A successful rotati
 1. Close the prior match record and retain its scores and score ledger for history.
 2. Create a new match record with both team scores at zero.
 3. Load a clean copy of the selected map and make it the active battlefield.
-4. Reset ephemeral round state: banner control, capture sessions, activity-cycle state, BAT session points, temporary borders, and per-round cooldowns.
-5. Move players safely through the lobby while worlds unload/load, then assign or restore them to their active team and spawn.
+4. Reset ephemeral round state: banner control/sessions, per-round banner points, statistics, minecart tracking, placed blocks, inventory, purchases, and storage locks.
+5. Move fighters and spectators through the Adventure-mode lobby, randomly balance online fighters within one player through Towny's internal combat containers, then use Survival for fighters and Spectator only inside the active siege.
 
-The existing `/siege admin resetscores` command remains an emergency administrative tool. Normal score resets should happen only as part of a fully successful map rotation; a failed rotation must leave the old map and its scores active.
+This is implemented around one atomic `ActiveRoundContext`. Capture geometry, team spawns, minecart boundary/sweeper/damage, placed blocks, scoring identity, player launches, and potion-storage resolution rebind before publication. Potion supplies persist as `map_id + chest-half coordinates`; legacy world-name entries remain stored but inactive unless their world is current.
 
-Before implementation, refactor current startup-bound services to accept the active map: `CaptureService`, team spawn locations, arena region/reset, minecart cleanup/protection, score-match definition, and potion-storage resolution all currently assume a static `siegeworld`. Towny continues to determine a player's Red/Blue membership; the maps do not import Sieges' legacy territory/team data. Map templates must also be versioned, validated, backed up, and protected from accidental editing.
+Manual score reset, the Active/Break cycle, six-hour in-place reset, and snapshot capture/restore workflows are retired. Scores reset only by creating a newly activated durable match.
 
-Best first increment: add a read-only map-template registry and an admin-only dry-run validator before any world-copy or unload operation.
+Operator recovery commands:
+
+- `/siege admin rotation status` — phase, generation, current/prepared map, and each fallback candidate with its `PENDING`/`FAILED`/`PREPARED` outcome.
+- `/siege admin rotation validate [map|all]` — re-reads `maps.yml` from disk and reports every admission problem per map. A map that does not validate is never copied for a live round.
+- `/siege admin rotation retry [map]`
+
+The score cutoff is configured as `scoring.winning-score` (default `10000`), grouped with the other scoring keys. `rotation.preparation-timeout-seconds` (default `300`) bounds how long one map copy may take before its attempt is abandoned.
+
+The winning transaction is guarded: it commits only when durable rotation state moves to `COMPLETING` for that exact match in one row. Otherwise the score, ledger entry, final statistics, winner, and status all roll back, so a match can never be closed without a ceremony to follow it.
 
 Sources: `refs/Sieges-master/README.md`; `SiegeGame`'s `FileMapLoader`/map configuration model.
 
@@ -227,8 +239,328 @@ Sources: `SiegeGame` classes under `player/border/`, including `FakeBorderWall`,
 
 ## Recommended priority
 
-1. **Map-template registry and validation** — configure and validate the five selected templates; no world swapping yet.
-2. **Native clean-copy loader** — asynchronous folder copy plus main-thread Bukkit/Paper load, safe unload, and generated-folder deletion.
-3. **Transactional map rotation and match rollover** — winner ceremony, lobby countdown/map reveal, archive the prior match, and create the zero-score match only after activation succeeds.
+1. **Configure and live-validate the five selected map templates** — manifests, clean folders, supplies, Towny behavior, and two-map acceptance.
+2. **Client-side border preview and enforcement** — bind it to the active map's arena/base geometry.
+3. **Lobby build/tutorial** — clearly present `/siege join` opt-in and round state.
 4. **Global personal kit editor** — configured replacement menus with validated Save & Equip; the same saved kit applies to every map.
-5. **Client-side border preview and enforcement** — bind it to the active map's arena/base geometry. Map voting, kit voting, and MVP statistics are explicitly later features; they are not part of this release.
+5. **Future voting** — map, kit-mode, and other votes remain deferred. MVP statistics are now part of the round ceremony.
+
+--------------------------
+
+##### CLAUDE FOLLOW ALONG PLAN:
+
+# SiegePlugin 1.1 — Map-Rotation Integration Plan
+
+## Summary
+
+Replace the eternal single-world match with a durable clean-copy round lifecycle owned by one `RotationCoordinator` and one immutable `ActiveRoundContext`.
+
+A match ends when the first committed score reaches or exceeds the configurable 10,000-point target. Players immediately receive a chat results card and lobby button, map preparation begins, and everyone is moved to the lobby within 40 seconds. The next match starts only after the map and lobby rosters are ready.
+
+Use the existing native map copier, Towny team containers, kits, lobby, and potion-storage mechanics. Retire the `ACTIVE`/`BREAK` cycle and the complete arena snapshot/reset workflow.
+
+---
+
+## Core Architecture and Persistence
+
+### Round state machine
+
+```
+BOOTSTRAPPING → ACTIVE → COMPLETING → INTERMISSION → ACTIVATING → ACTIVE
+INTERMISSION → RECOVERY → INTERMISSION   (handles exhausted map candidates and operator retries)
+```
+
+- **`ACTIVE`**: scoring, capture, combat statistics, shops, and battlefield entry are enabled.
+- **`COMPLETING`**: the threshold-crossing score transaction is in flight; reject additional scoring and statistics.
+- **`INTERMISSION`**: the old match is closed, results are announced, players move to the lobby, and map preparation runs concurrently.
+- **`ACTIVATING`**: freeze the queue, assign teams, create the next durable match, publish its context, distribute kits, and teleport everyone.
+- **`RECOVERY`**: every automatic map candidate failed. Keep everyone in the lobby with no active match until an operator retries.
+- Activation requires **two gates**: the prepared map has passed validation, and every online previous-match participant/spectator has left the old battlefield or disconnected.
+
+### Public lifecycle types
+
+- **`ActiveRoundContext`** — immutable match ID, map identity/display name, active world, spawns, capture point/radius, arena bounds, score limit, and runtime potion supplies.
+- **`ActiveRoundProvider`** — exposes the currently published context to world-aware services.
+- **`PreparedRound`** — loaded but unpublished candidate map with completed validation.
+- **`RotationCoordinator`** — owns state transitions, generation tokens, player queue, fallback sequence, recovery, and old-world cleanup.
+- **`RoundActivityStatus`** — replaces `SiegePhaseStatus`; active only while the coordinator is `ACTIVE`.
+- **`RoundRole`** — `PLAYER` or `SPECTATOR`.
+- **`AwardOutcome`** — accepted score, completed match, rejected closed match, or failed persistence.
+
+All lifecycle callbacks carry a rotation generation so stale copy, teleport, database, and cleanup completions cannot affect a later round.
+
+### Database changes
+
+- Extend `matches` with map ID, runtime-world name, score limit, winner, end time, and statuses `LEGACY`, `ACTIVE`, `COMPLETED`, and `ABORTED`.
+- Add singleton durable rotation state containing phase, generation, active/completed match IDs, previous map, prepared runtime world, and lobby deadline.
+- Persist ordered fallback candidates and their pending/failed/prepared state.
+- Persist the intermission queue with player UUID, role, and automatic/opt-in source.
+- Persist each match roster with assigned team or spectator role.
+- Persist per-player match statistics: last known name, kills, applied damage, and banner seconds.
+- Archive `eternal-1` as `LEGACY` on first rotation startup, retaining its score ledger without presenting a results ceremony. The first rotating map begins at 0–0.
+- Existing snapshot files and legacy world-bound potion records are preserved on disk but ignored after migration; do not delete operator data automatically.
+
+---
+
+## Match Completion, Ceremony, and MVPs
+
+### Durable score cutoff
+
+- Configure `rotation.winning-score: 10000`.
+- Serialize score awards so only one award decision is unresolved at a time.
+- When the known score plus an award reaches the limit, close the local scoring gate before submitting it.
+- In one database transaction: apply the full award, append its ledger entry, persist final player statistics, set the winner/end time/status, and move durable rotation state to intermission.
+- **Preserve overshoot**: 9,950 plus 150 finishes at 10,100.
+- Reject all later score writes with no ledger, currency, session-point, or MVP effects.
+- If the completion transaction fails, return to `ACTIVE` and report the failure; do not announce a winner.
+- Remove the activity-cycle scheduler, `ACTIVE`/`BREAK` phases, timer configuration, break/resume commands, and sidebar timer. Retain banner-generated points as per-round "Banner Points," reset at activation.
+
+### Results card
+
+Immediately after durable completion, broadcast a gold/team-colored Adventure chat component:
+
+- Winning team and final score.
+- **Kill MVP** — player name and kill count.
+- **Damage MVP** — player name and applied damage to one decimal.
+- **Banner MVP** — player name and `Xm Ys`.
+- **Overall MVP** — player name only.
+- "Preparing next map: `<display name>` — it will be loaded shortly."
+- Clickable **[Go to Lobby]** using the normal Siege command path with a specific intermission action and hover text.
+
+If a candidate fails, broadcast the failure and updated fallback map. Chat history is not edited.
+
+### MVP rules
+
+Track only while the round is `ACTIVE`.
+
+- **Kill**: direct credited enemy-player kills; exclude team kills, environmental deaths, and suicides.
+- **Damage**: actual final enemy-player damage after mitigation, capped at remaining health plus absorption. Resolve direct attacks, projectiles, and player-owned siege explosives; exclude cancelled, self, friendly, and environmental damage.
+- **Banner time**: one second for every eligible player present in the capture zone on each capture tick, including simultaneous players and existing controllers.
+- Checkpoint dirty statistics every five seconds, flush on orderly shutdown, and include the final snapshot in the match-closing transaction.
+- Calculate each percentage against the match-wide total across both teams; a zero-total category contributes zero:
+  ```
+  overall = 0.45 × banner_time_pct + 0.45 × kills_pct + 0.10 × damage_pct
+  ```
+- Category ties use the primary statistic, then Overall MVP score, then UUID.
+- Overall ties use weighted score, banner time, kills, damage, then UUID.
+- If nobody contributed to a category, display `None — 0`; if every overall score is zero, display `Overall MVP: None`.
+
+---
+
+## Intermission, Teams, and Active-Map Binding
+
+### Lobby and queue behavior
+
+- Configure a fixed **40-second** force-lobby deadline.
+- Previous-round players and spectators enter the next-round queue automatically.
+- Other lobby players must run `/siege join`; during intermission this queues them instead of teleporting them.
+- Previous spectators remain logically registered as spectators but use Adventure mode in the lobby.
+- At match end: close inventories, discard all battlefield inventory, clear obsolete saved-round inventory, bypass combat/capture exit restrictions, and teleport to the lobby.
+- Show an action-bar countdown; send chat reminders at 30, 10, and 5 seconds.
+- At the deadline, force any remaining online participants and spectators to the lobby. Offline players count as safely removed.
+- A player who cannot be teleported is excluded from launch and leaves the old world quarantined from deletion; reconnect handling places them in the lobby.
+- Unrelated lobby players remain unqueued. Disconnecting removes a player from the current launch attempt.
+
+### Team assignment and launch
+
+- Wait until both the lobby and prepared-map gates are ready.
+- Freeze online queued players immediately before activation.
+- Shuffle players, assign each next player to the currently smaller team, and randomize which team receives the odd player.
+- Persist planned assignments, then apply them idempotently through Towny. Balance online round participants, not total Towny residents.
+- A failed Towny move leaves that player in the lobby and does not cancel everyone else; successful assignments remain balanced by assigning sequentially to the smaller successful side.
+- Logical spectators stay in the spectator Towny container and receive no competitive team.
+- Create the new `ACTIVE` match and durable roster before publishing `ActiveRoundContext`.
+- Players receive Survival mode, a fresh curated kit or default fallback, and their team spawn. No purchases, supplies, or other inventory carry forward.
+- Spectators receive Spectator mode only after entering the active battlefield.
+- Currency and saved kit choices persist.
+- Mid-round `/siege join` assigns the player to the smaller active online roster and gives a fresh kit; intermission `/siege join` only queues.
+
+### Service rebinding
+
+Make services read the published context rather than boot-time world configuration:
+
+- **Capture**: new banner location/radius, cleared sessions/control, continuous capture until match end.
+- **Player transitions and team switching**: dynamic team spawns and coordinator-aware lobby/queue behavior.
+- **Scoring/death/currency**: active match ID and round activity gate.
+- **Sidebar**: active map, score target, scores, banner control, and per-round banner points.
+- **Minecarts**: active world and manifest bounds; clear cooldown/headcount/sweeper state.
+- **Placed blocks**: retain in-round tracking but clear it at activation.
+- **Potion supplies**: resolve map ID plus template coordinates into the generated world, rebuild labels, refill, and clear locks.
+- **Shop and battlefield interactions**: reject during intermission/recovery.
+- **Kit system**: retain global saved selection; activation always reconstructs a fresh trusted loadout.
+
+Publish the context in one main-thread operation after all bindable data has been prevalidated. Activation hooks may reset ephemeral state but must perform no database or filesystem work and must not throw under validated input.
+
+---
+
+## Maps, Supplies, Recovery, and Retired Systems
+
+### Map configuration and selection
+
+- Load `maps.yml` independently from `config.yml`.
+- An enabled map requires a safe template folder, display name, Red/Blue spawns, capture point/radius, arena bounds, and valid optional supply definitions.
+- Validate path containment, template metadata, coordinates within bounds, safe spawn blocks, capture placement, and configured double-chest supplies before admitting a map to rotation.
+- Use a shuffled non-repeating map bag. Normally exclude the map that just ended.
+- On match completion, select and announce the first candidate immediately, then copy/load asynchronously.
+- **Automatic fallback order**: selected candidate → every other enabled validated map once in shuffled order → a fresh copy of the map that just ended.
+- Clean every failed partial copy through the guarded generated-folder deletion path.
+- Old active worlds unload without saving only after no players remain; cleanup failure is reported and retried but does not corrupt the new match.
+
+### Potion-storage migration
+
+- Keep the existing physical double-chest behavior, lock, refill rules, labels, and in-game registration commands.
+- Change durable identity from literal runtime world name to map ID plus both template chest-half coordinates.
+- Registration while standing in an active copied map resolves and saves its map ID; the same coordinates bind to every future copy.
+- Rebuild only the active map's supplies on activation.
+- Preserve legacy world-name entries as inactive legacy records and warn operators to re-register them per map.
+
+### Durable recovery
+
+"Candidates exhausted" means no validated template could be safely copied, loaded, and bound, including the prior map fallback.
+
+- Persist `RECOVERY`, candidate errors, completed match ID, queue, and prior map.
+- Keep players in Adventure mode in the lobby.
+- Do not create a new match, reset scores, assign teams, distribute kits, or reopen scoring.
+- Add admin commands:
+    - `/siege admin rotation status`
+    - `/siege admin rotation validate [map|all]` — reload and validate `maps.yml`
+    - `/siege admin rotation retry [map]`
+- On restart:
+    - **`ACTIVE`**: reload the recorded active copy and resume scores/stat checkpoints; if unrecoverable, mark the match `ABORTED` and enter intermission without declaring a winner.
+    - **`COMPLETING`**: trust the atomic database result — either resume `ACTIVE` or continue the completed intermission.
+    - **`INTERMISSION`/`RECOVERY`**: put joining players in the lobby, discard incomplete generated copies, and resume candidate preparation/recovery.
+    - **`ACTIVATING`**: replay persisted Towny assignments idempotently and publish the already-created match/context.
+- Never reopen a completed match or announce its winner twice.
+
+### Retire snapshot and activity-cycle systems
+
+- Remove the six-hour reset scheduler and `cleanup.map-reset-interval-hours`.
+- Remove arena snapshot capture/restore services, maintenance coordinator, snapshot limits/configuration, and their startup warnings.
+- Remove `/siege admin setresetpos1`, `setresetpos2`, `savesnapshot`, and `resetmap`.
+- Replace reset recovery with rotation retry/fresh-copy operations.
+- Replace snapshot-derived minecart protection with active `MapBounds`.
+- Remove break/resume commands, activity-cycle configuration, tests, and documentation.
+- Leave old snapshot files untouched for manual operator cleanup.
+
+---
+
+## Test and Release Plan
+
+### Automated tests
+
+- Pure coordinator tests for every valid transition, stale generation, duplicate completion callback, simultaneous readiness gates, deadline flush, disconnect, and recovery retry.
+- DAO concurrency tests proving exactly one threshold-crossing award completes a match, overshoot is retained, later awards are rejected, and transaction failure leaves the match active.
+- Restart hydration tests for every durable state and legacy `eternal-1` migration.
+- Fallback tests covering primary failure, alternate success, previous-map final fallback, total exhaustion, partial-copy cleanup, and invalid manifests.
+- Roster tests for randomization, difference no greater than one, opt-in players, spectators, disconnects, Towny failures, and idempotent replay.
+- MVP tests for attribution, zero totals, percentage calculation, weighted ranking, deterministic ties, formatting, checkpoint recovery, and atomic final persistence.
+- Service-context tests proving no service observes a mixed old/new map and every ephemeral tracker resets once.
+- Potion tests proving map-relative records bind to different generated world names without crossing maps.
+- Update command, configuration, sidebar, and canonical-config tests after removing cycle/snapshot behavior.
+
+### Live Paper acceptance matrix
+
+Use at least four players plus one spectator and two validated maps.
+
+- End matches through both a kill award and banner award; verify one winner, full overshoot, one ledger close, and no post-win rewards.
+- Verify results formatting, MVP values, clickable lobby button, reminders, forced 40-second movement, and early launch when both gates become ready.
+- Verify Adventure lobby mode, spectator lobby transition, restored Spectator mode on the battlefield, balanced random Towny teams, and visual team refresh.
+- Verify fresh curated/default kits, discarded purchases, persistent currency/preferences, and clean map terrain.
+- Delay and fail map copies; verify fallback updates, previous-map fallback, complete recovery, admin retry, and no phantom 0–0 match.
+- Restart during `ACTIVE`, completion, intermission, activation, and recovery; verify no duplicated ceremony, match, score, assignment, or inventory.
+- Verify map-relative potion supplies, labels, locking, refill, minecart bounds, sweeper reset, placed-block reset, and old-world cleanup.
+- Profile async copying and five-second stat checkpoints; copying must not block server ticks.
+
+### Rollout assumptions
+
+- Approach B (prepared map plus atomic active context) is the approved architecture.
+- Rotation becomes the only production match mode; do not deploy until at least two maps pass validation so fallback can be staged.
+- All five selected maps remain disabled until their coordinates, bounds, and optional supplies are configured and tested.
+- Map/kit voting and client-side border walls remain deferred.
+- Update the expansion brief, map-rotation design, playtest guide, command reference, and standing reminder when implementation is complete.
+
+### CLAUDE VALIDATION PLAN
+
+# Map-Rotation Correctness and Release-Hardening Plan
+
+## Summary
+
+Retain the other agent's useful foundation — clean-copy loading, finite scoring, MVP calculation, balanced roster planning, service rebinding, and retired snapshots — but do not enable maps yet.
+
+All 206 tests pass, but the central coordinator is effectively untested, and several release-blocking issues remain: stale async callbacks can activate the wrong map, lobby teleport failure can stall rotation forever, combat outside the active arena can award points, restart recovery can lose participants or reopen closed matches, and loaded maps are not fully validated.
+
+---
+
+## Core Lifecycle and Persistence
+
+- Refactor the large coordinator behind injectable persistence, scheduler, player-transition, and world-lifecycle ports so its state machine can be tested deterministically without rewriting the clean-copy loader.
+- Give every preparation/activation operation a unique attempt token. Retry, shutdown, and recovery invalidate earlier attempts; stale completions may only unload their generated world.
+- Add compare-and-set lifecycle persistence using phase, generation, and revision. Never acknowledge a queue, phase change, roster change, abort, or active publication before its database write succeeds.
+- Require the winning transaction's guarded `rotation_state` update to affect exactly one row; otherwise roll back the score, ledger, final statistics, winner, and status.
+- Validate existing match status and map/runtime metadata before `ScoringService` activates it. Reconcile restart mismatches as follows:
+  - **`ACTIVE`** match resumes.
+  - **`COMPLETED`** match continues completion/intermission.
+  - **`ABORTED`** match transfers its roster to intermission without a winner.
+  - A failed roster read during `ACTIVATING` enters recovery; it must never reshuffle or replace the persisted plan.
+- Atomically abort an unrecoverable match and transfer its full roster to the intermission queue. Abort failure leaves the server in `RECOVERY`.
+- On first rotation startup, archive `eternal-1` without ceremony and enter intermission for rotation-1 at 0–0. If no enabled map exists, enter lobby recovery instead of running a transitional legacy match.
+- Bind MVP tracking to an explicit match ID. Reset/bind it before changing scoring identity, checkpoint only during matching `ACTIVE` context, and replace the complete stored snapshot so old-player rows cannot leak into a new match.
+
+### Persistence additions
+
+- Add `rotation_state.revision`.
+- Replace candidate CSV as the authority with ordered candidate rows containing map ID, status, and sanitized failure reason; migrate existing CSV records non-destructively.
+- Add a durable generated-world cleanup queue with attempt count, last error, and next retry time.
+- Extend match roster entries with `PLANNED`, `BATTLEFIELD`, and `LOBBY` presence.
+- Preserve all existing matches, ledgers, inventories, potion records, templates, and snapshot files.
+
+---
+
+## Players, Eligibility, and Ceremony
+
+- Make the durable current-match roster authoritative instead of Towny residency:
+  - Load it during `ACTIVE` recovery.
+  - Preserve presence across disconnects and restart.
+  - Rehydrate battlefield fighters/spectators on reconnect.
+  - Keep voluntarily returned players in the lobby until they run `/siege join`.
+- Make `/siege join` phase-explicit:
+  - **`ACTIVE`**: persist a mid-round assignment, join the smaller active online roster, and issue a fresh curated/default kit.
+  - **`INTERMISSION`/`RECOVERY`**: durably queue and move to the lobby.
+  - **`BOOTSTRAPPING`/`COMPLETING`/`ACTIVATING`**: reject with a temporary-state message.
+- At the 40-second deadline, attempt forced evacuation once. Players whose teleport fails are excluded from that launch, remain safely queued, and quarantine the old world; they must not block activation indefinitely.
+- Catch fighter and spectator Towny/teleport exceptions independently. One failed player cannot strand the round in `ACTIVATING`.
+- Count only rostered online battlefield fighters when balancing teams or processing team switches; update the roster after a successful switch.
+- Add one shared active-combat eligibility policy requiring `ACTIVE`, current runtime world, battlefield presence, and fighter role. Apply it to deaths, damage MVP, capture participation, shop delivery, potion access, placed blocks, and siege-minecart placement.
+- Every eligible siege death receives exactly one Siege message. A kill whose score write is rejected displays `Battle Points +0` and grants no kill MVP or currency.
+- Preserve the current result layout, but add the lobby-button hover text and change the action bar to describe lobby transfer rather than promising the next siege will start at that exact second.
+
+---
+
+## Maps, Potion Supplies, and Cleanup
+
+- Parse `maps.yml` strictly so malformed YAML fails instead of becoming an empty manifest. Retain the last-good live manifest after a failed reload.
+- Validate enabled map IDs against `[A-Za-z0-9_-]+`, require every bounds field, reject non-finite coordinates, and use the loaded world's actual minimum/maximum height.
+- Use two-stage admission:
+  - **Static**: real-path template containment, `level.dat`, required metadata, ordered bounds, coordinates, capture radius, and registered-supply bounds.
+  - **Loaded copy**: solid non-hazardous spawn footing, passable feet/head space, valid capture placement/support, and both halves of every configured double chest.
+- Share loaded-copy admission between automatic rotation and asynchronous `/siege admin rotation validate`; validation copies are always unloaded and cannot mutate round state.
+- Register and resolve potion storage only when the physical chest belongs to the published active runtime world and lies within that map's bounds. A lobby chest at matching coordinates must never resolve as a supply.
+- Replace the overloaded storage `worldName` identity with an explicit map-relative location type while retaining legacy world-name records as inactive warnings.
+- Keep the existing copy/delete safeguards, adding a five-minute configurable preparation timeout and composed cleanup. Persist old, failed, and stale generated worlds before cleanup begins; retry with capped backoff up to five minutes until player-free.
+- Report pre-existing untracked generated folders for manual review rather than deleting them automatically.
+- Track spawned potion-label UUIDs so activation removes only SiegePlugin's prior labels instead of scanning every entity in every world.
+- Make `/siege admin setbanner` update and validate the active map's `maps.yml` capture coordinates; it must no longer mutate obsolete boot-world coordinates.
+
+---
+
+## Tests and Acceptance
+
+- Add coordinator tests covering every phase, duplicate completion, simultaneous readiness gates, overlapping retries, stale callbacks, deadline teleport failure, candidate exhaustion, previous-map fallback, and cleanup recovery.
+- Add restart tests for all durable phases, match/state mismatches, roster/presence hydration, idempotent assignment replay, aborted roster transfer, and first-rotation migration.
+- Add transaction tests proving missing/mismatched rotation state and injected final-stat failures roll back the complete winning award.
+- Add player-transition tests for fighter/spectator success and failures, phase-specific joins, active-roster balancing, reconnects, and inventory/kit behavior.
+- Add eligibility tests proving lobby, other-world, unrostered, friendly, self, and environmental activity cannot affect score, currency, capture, or MVPs.
+- Add strict manifest, runtime spawn/capture/chest, wrong-world potion registration, map-relative rebinding, label cleanup, timeout, and stale-copy tests.
+- Run the complete Maven suite, package build, `git diff --check`, and stale-reference searches for retired snapshot/cycle/reset APIs.
+- Keep all maps disabled until two maps pass strict validation and the four-fighter/one-spectator playtest — including win by kill/banner, forced-lobby failure, fallback, and restart in every phase — passes.
+- After acceptance, update the expansion brief, map-rotation memory, playtest guide, and repository priority notice. Keep `scoring.winning-score: 10000`, the 40-second lobby deadline, native clean-copy loading, existing potion behavior, and deferred voting/border-wall features.

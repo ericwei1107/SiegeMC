@@ -1,102 +1,56 @@
 package woo.siegePlugin.command;
 
+import org.bukkit.Location;
 import org.bukkit.command.CommandSender;
-import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
-import woo.siegePlugin.arena.ArenaRegion;
-import woo.siegePlugin.arena.ArenaRegionSettings;
-import woo.siegePlugin.arena.ArenaResetService;
-import woo.siegePlugin.arena.ArenaSnapshotService;
 import woo.siegePlugin.capture.CaptureService;
-import woo.siegePlugin.cycle.ActivityCycleService;
 import woo.siegePlugin.kit.KitService;
 import woo.siegePlugin.kit.KitSnapshot;
-import woo.siegePlugin.score.ScoringService;
+import woo.siegePlugin.map.MapValidator;
+import woo.siegePlugin.round.ActiveRoundContext;
+import woo.siegePlugin.round.RotationCoordinator;
 import woo.siegePlugin.storage.PotionStorage;
 import woo.siegePlugin.storage.PotionStorageService;
 import woo.siegePlugin.storage.PotionStorageTemplates;
 import woo.siegePlugin.team.Team;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
-import java.time.Duration;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-/** Everything under {@code /siege admin}. */
+/** Commands that mutate durable SiegePlugin administration state. */
 public final class SiegeAdminCommand {
 
     static final String PERMISSION = "siege.admin";
-    static final String RESET_SCORES_PERMISSION = "siege.admin.resetscores";
-
-    private static final List<String> SUBCOMMANDS = List.of(
-            "setbanner",
-            "resetscores",
-            "break",
-            "resume",
-            "setresetpos1",
-            "setresetpos2",
-            "savesnapshot",
-            "savekit",
-            "resetmap",
-            "supply"
-    );
+    private static final List<String> SUBCOMMANDS = List.of("setbanner", "savekit", "supply", "rotation");
 
     private final JavaPlugin plugin;
-    private final CaptureService captureService;
-    private final ScoringService scoringService;
-    private final ArenaSnapshotService snapshotService;
-    private final ArenaResetService resetService;
-    private final ActivityCycleService activityCycleService;
-    private final KitService kitService;
+    private final CaptureService capture;
+    private final KitService kits;
     private final Logger logger;
-    private final PotionStorageService potionStorageService;
+    private final PotionStorageService storages;
+    private final RotationCoordinator rotation;
 
     public SiegeAdminCommand(
             JavaPlugin plugin,
-            CaptureService captureService,
-            ScoringService scoringService,
-            ArenaSnapshotService snapshotService,
-            ArenaResetService resetService,
-            ActivityCycleService activityCycleService,
-            KitService kitService,
-            Logger logger
-    ) {
-        this(
-                plugin,
-                captureService,
-                scoringService,
-                snapshotService,
-                resetService,
-                activityCycleService,
-                kitService,
-                logger,
-                null
-        );
-    }
-
-    public SiegeAdminCommand(
-            JavaPlugin plugin,
-            CaptureService captureService,
-            ScoringService scoringService,
-            ArenaSnapshotService snapshotService,
-            ArenaResetService resetService,
-            ActivityCycleService activityCycleService,
-            KitService kitService,
+            CaptureService capture,
+            woo.siegePlugin.score.ScoringService ignoredScoring,
+            KitService kits,
             Logger logger,
-            PotionStorageService potionStorageService
+            PotionStorageService storages,
+            RotationCoordinator rotation
     ) {
         this.plugin = plugin;
-        this.captureService = captureService;
-        this.scoringService = scoringService;
-        this.snapshotService = snapshotService;
-        this.resetService = resetService;
-        this.activityCycleService = activityCycleService;
-        this.kitService = kitService;
+        this.capture = capture;
+        this.kits = kits;
         this.logger = logger;
-        this.potionStorageService = potionStorageService;
+        this.storages = storages;
+        this.rotation = rotation;
     }
 
     public boolean handle(CommandSender sender, String label, String[] args) {
@@ -105,256 +59,160 @@ public final class SiegeAdminCommand {
             return true;
         }
         if (args.length < 2) {
-            sendUsage(sender, label);
+            usage(sender, label);
             return true;
         }
-
         return switch (args[1].toLowerCase(Locale.ROOT)) {
-            case "setbanner" -> handleSetBanner(sender);
-            case "resetscores" -> handleResetScores(sender, label, args);
-            case "break" -> handleBreak(sender, label, args);
-            case "resume" -> handleResume(sender, label, args);
-            case "setresetpos1" -> handleSetResetCorner(sender, "pos1");
-            case "setresetpos2" -> handleSetResetCorner(sender, "pos2");
-            case "savesnapshot" -> handleSaveSnapshot(sender, label, args);
-            case "savekit" -> handleSaveKit(sender, label, args);
-            case "resetmap" -> handleResetMap(sender);
-            case "supply" -> handleSupply(sender, label, args);
+            case "setbanner" -> setBanner(sender);
+            case "savekit" -> saveKit(sender, label, args);
+            case "supply" -> supply(sender, label, args);
+            case "rotation" -> rotation(sender, label, args);
             default -> {
-                sendUsage(sender, label);
+                usage(sender, label);
                 yield true;
             }
         };
     }
 
     public List<String> tabComplete(CommandSender sender, String[] args) {
-        if (!sender.hasPermission(PERMISSION)) {
-            return List.of();
-        }
+        if (!sender.hasPermission(PERMISSION)) return List.of();
         if (args.length == 2) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
-            return SUBCOMMANDS.stream()
-                    .filter(name -> !name.equals("resetscores") || sender.hasPermission(RESET_SCORES_PERMISSION))
-                    .filter(name -> name.startsWith(prefix))
-                    .toList();
+            return SUBCOMMANDS.stream().filter(value -> value.startsWith(prefix)).toList();
         }
-        if (args.length == 3 && args[1].equalsIgnoreCase("resetscores")
-                && !sender.hasPermission(RESET_SCORES_PERMISSION)) {
-            return List.of();
-        }
-        if (args.length == 3
-                && List.of("resetscores", "savesnapshot", "savekit")
-                .contains(args[1].toLowerCase(Locale.ROOT))) {
+        if (args.length == 3 && args[1].equalsIgnoreCase("savekit")) {
             return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
         }
-        if (args[1].equalsIgnoreCase("supply")) {
-            if (args.length == 3) {
-                String prefix = args[2].toLowerCase(Locale.ROOT);
-                return List.of("register", "unregister", "list", "info").stream()
-                        .filter(option -> option.startsWith(prefix))
-                        .toList();
-            }
-            if (args.length == 4 && args[2].equalsIgnoreCase("register")) {
-                String prefix = args[3].toLowerCase(Locale.ROOT);
-                return List.of("red", "blue").stream().filter(team -> team.startsWith(prefix)).toList();
-            }
+        if (args.length == 3 && args[1].equalsIgnoreCase("rotation")) {
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            return List.of("status", "validate", "retry").stream().filter(value -> value.startsWith(prefix)).toList();
+        }
+        if (args.length == 3 && args[1].equalsIgnoreCase("supply")) {
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            return List.of("register", "unregister", "list", "info").stream()
+                    .filter(value -> value.startsWith(prefix)).toList();
+        }
+        if (args.length == 4 && args[1].equalsIgnoreCase("supply")
+                && args[2].equalsIgnoreCase("register")) {
+            String prefix = args[3].toLowerCase(Locale.ROOT);
+            return List.of("red", "blue").stream().filter(value -> value.startsWith(prefix)).toList();
         }
         return List.of();
     }
 
-    private boolean handleSetBanner(CommandSender sender) {
+    private boolean rotation(CommandSender sender, String label, String[] args) {
+        if (rotation == null || args.length < 3) {
+            sender.sendMessage("Usage: /" + label + " admin rotation <status|validate [map|all]|retry [map]>");
+            return true;
+        }
+        switch (args[2].toLowerCase(Locale.ROOT)) {
+            case "status" -> rotation.statusLines().forEach(sender::sendMessage);
+            case "validate" -> {
+                String map = args.length >= 4 && !args[3].equalsIgnoreCase("all") ? args[3] : null;
+                // Loaded-copy checks copy each template, so the report arrives
+                // asynchronously rather than blocking the command thread.
+                sender.sendMessage("Validating maps; loaded-copy checks may take a moment…");
+                rotation.validate(map, lines -> lines.forEach(sender::sendMessage));
+            }
+            case "retry" -> {
+                String map = args.length >= 4 ? args[3] : null;
+                sender.sendMessage(rotation.retry(map)
+                        ? "Siege map recovery retry started."
+                        : "Rotation is not recoverable now, or that enabled map is unknown.");
+            }
+            default -> sender.sendMessage("Usage: /" + label
+                    + " admin rotation <status|validate [map|all]|retry [map]>");
+        }
+        return true;
+    }
+
+    /**
+     * Moves the banner for the map the admin is standing in and writes the new
+     * coordinates back to that map's {@code maps.yml} entry.
+     *
+     * <p>Previously this only moved the runtime banner, so the change was lost
+     * the moment the round rotated. It now edits the manifest the next copy is
+     * built from, and refuses outright when the admin is not in the active map —
+     * writing template-relative coordinates taken from an unrelated world would
+     * silently corrupt the manifest.</p>
+     */
+    private boolean setBanner(CommandSender sender) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only a player can set the capture banner location.");
             return true;
         }
-
+        ActiveRoundContext context = rotation == null ? null : rotation.activeContext().orElse(null);
+        if (context == null || !player.getWorld().equals(context.world())) {
+            player.sendMessage("Stand in the active siege map before moving its capture banner.");
+            return true;
+        }
+        Location target = player.getLocation();
+        if (!MapValidator.contains(context.bounds(), target.getX(), target.getZ())) {
+            player.sendMessage("That position is outside this map's arena bounds.");
+            return true;
+        }
         try {
-            captureService.relocateBanner(player.getLocation());
-        } catch (RuntimeException exception) {
-            logger.log(Level.SEVERE, "Could not move the capture banner", exception);
+            capture.relocateBanner(target);
+            writeCaptureCoordinates(context.map().id(), target);
+            player.sendMessage("Capture banner set to " + capture.banner().describe()
+                    + " and saved to maps.yml for " + context.map().id() + ".");
+        } catch (RuntimeException | IOException failure) {
+            logger.log(Level.SEVERE, "Could not move the capture banner", failure);
             player.sendMessage("The capture banner could not be moved. Check the server log.");
-            return true;
-        }
-
-        String description = captureService.banner().describe();
-        logger.info("Capture banner moved to " + description + " by " + player.getName() + ".");
-        player.sendMessage("Capture banner set to " + description + ". All capture progress was reset.");
-        return true;
-    }
-
-    private boolean handleResetScores(CommandSender sender, String label, String[] args) {
-        if (!sender.hasPermission(RESET_SCORES_PERMISSION)) {
-            sender.sendMessage("You do not have permission to reset siege scores.");
-            return true;
-        }
-        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-            sender.sendMessage("This clears the eternal siege score for both teams and cannot be undone.");
-            sender.sendMessage("Run /" + label + " admin resetscores confirm to proceed.");
-            return true;
-        }
-
-        sender.sendMessage("Resetting siege scores...");
-        scoringService.resetScores((reset, failure) -> {
-            if (failure != null) {
-                sender.sendMessage("Siege scores could not be reset. Check the server log.");
-                return;
-            }
-            logger.info("Siege scores reset by " + sender.getName() + ".");
-            sender.sendMessage("Siege scores reset to zero for both teams.");
-        });
-        return true;
-    }
-
-    private boolean handleBreak(CommandSender sender, String label, String[] args) {
-        if (args.length > 3) {
-            sender.sendMessage("Usage: /" + label + " admin break [seconds]");
-            return true;
-        }
-        if (activityCycleService == null) {
-            sender.sendMessage("The activity cycle is unavailable.");
-            return true;
-        }
-        Duration duration = activityCycleService.configuredBreakDuration();
-        if (args.length == 3) {
-            try {
-                long seconds = Long.parseLong(args[2]);
-                if (seconds <= 0L) {
-                    throw new NumberFormatException("non-positive");
-                }
-                duration = Duration.ofSeconds(seconds);
-            } catch (NumberFormatException | ArithmeticException exception) {
-                sender.sendMessage("Break duration must be a positive number of seconds.");
-                return true;
-            }
-        }
-
-        ActivityCycleService.CycleCommandResult result = activityCycleService.forceBreak(duration);
-        switch (result) {
-            case BREAK_STARTED -> sender.sendMessage("Siege banner control is now on break.");
-            case BREAK_EXTENDED -> sender.sendMessage("The current siege break was extended.");
-            case DISABLED -> sender.sendMessage("The activity cycle is disabled in config.");
-            default -> throw new IllegalStateException("Unexpected break result: " + result);
         }
         return true;
     }
 
-    private boolean handleResume(CommandSender sender, String label, String[] args) {
-        if (args.length != 2) {
-            sender.sendMessage("Usage: /" + label + " admin resume");
-            return true;
-        }
-        if (activityCycleService == null) {
-            sender.sendMessage("The activity cycle is unavailable.");
-            return true;
-        }
-        ActivityCycleService.CycleCommandResult result = activityCycleService.resume();
-        switch (result) {
-            case RESUMED -> sender.sendMessage("Siege banner control is active again.");
-            case ALREADY_ACTIVE -> sender.sendMessage("Siege banner control is already active.");
-            case DISABLED -> sender.sendMessage("The activity cycle is disabled in config.");
-            default -> throw new IllegalStateException("Unexpected resume result: " + result);
-        }
-        return true;
+    private void writeCaptureCoordinates(String mapId, Location target) throws IOException {
+        File mapsFile = new File(plugin.getDataFolder(), "maps.yml");
+        YamlConfiguration maps = YamlConfiguration.loadConfiguration(mapsFile);
+        String path = "maps." + mapId + ".capture-point";
+        maps.set(path + ".x", target.getBlockX() + 0.5D);
+        maps.set(path + ".y", (double) target.getBlockY());
+        maps.set(path + ".z", target.getBlockZ() + 0.5D);
+        maps.save(mapsFile);
     }
 
-    private boolean handleSetResetCorner(CommandSender sender, String corner) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can set an arena reset corner.");
-            return true;
-        }
-
-        FileConfiguration config = plugin.getConfig();
-        ArenaRegionSettings.saveCorner(config, corner, player.getLocation());
-        plugin.saveConfig();
-
-        Optional<ArenaRegion> region = ArenaRegionSettings.fromConfig(config, plugin.getServer());
-        sender.sendMessage("Arena reset " + corner + " set to "
-                + player.getLocation().getBlockX() + ", "
-                + player.getLocation().getBlockY() + ", "
-                + player.getLocation().getBlockZ() + ".");
-        region.ifPresentOrElse(
-                complete -> sender.sendMessage("Region is now " + complete.blockCount()
-                        + " blocks across " + complete.tileCount() + " tiles."),
-                () -> sender.sendMessage("Set the other corner before saving a snapshot.")
-        );
-        return true;
-    }
-
-    private boolean handleSaveSnapshot(CommandSender sender, String label, String[] args) {
-        Optional<ArenaRegion> region = ArenaRegionSettings.fromConfig(plugin.getConfig(), plugin.getServer());
-        if (region.isEmpty()) {
-            sender.sendMessage("Set both corners first with /" + label + " admin setresetpos1 and setresetpos2.");
-            return true;
-        }
-
-        ArenaRegion arena = region.orElseThrow();
-        if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-            sender.sendMessage("This overwrites the saved clean-map snapshot with the arena's CURRENT state.");
-            sender.sendMessage("Region: " + arena.blockCount() + " blocks in " + arena.tileCount() + " tiles.");
-            sender.sendMessage("Only run this on a clean map. Use /" + label + " admin savesnapshot confirm.");
-            return true;
-        }
-
-        snapshotService.capture(arena, sender::sendMessage);
-        return true;
-    }
-
-    private boolean handleSaveKit(CommandSender sender, String label, String[] args) {
+    private boolean saveKit(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only a player can capture the default siege kit.");
             return true;
         }
         if (args.length != 3 || !args[2].equalsIgnoreCase("confirm")) {
-            sender.sendMessage("This replaces the server-wide siege kit with your CURRENT inventory, armor, and offhand.");
-            sender.sendMessage("Run /" + label + " admin savekit confirm to proceed.");
+            sender.sendMessage("Run /" + label + " admin savekit confirm to replace the global default kit.");
             return true;
         }
-
         try {
             KitSnapshot snapshot = KitSnapshot.fromInventory(player.getInventory());
             snapshot.saveToConfig(plugin.getConfig());
             plugin.saveConfig();
-            kitService.replaceSnapshot(snapshot);
-            logger.info("Default siege kit snapshot replaced by " + player.getName() + ".");
-            player.sendMessage("Default siege kit saved and activated. Use /siege kit to verify it.");
-        } catch (IllegalArgumentException exception) {
-            player.sendMessage("The default siege kit was not saved: " + exception.getMessage());
+            kits.replaceSnapshot(snapshot);
+            player.sendMessage("Default siege kit saved and activated.");
+        } catch (IllegalArgumentException failure) {
+            player.sendMessage("The default siege kit was not saved: " + failure.getMessage());
         }
         return true;
     }
 
-    private boolean handleResetMap(CommandSender sender) {
-        resetService.scheduleReset(sender::sendMessage);
-        return true;
-    }
-
-    private boolean handleSupply(CommandSender sender, String label, String[] args) {
-        if (potionStorageService == null) {
-            sender.sendMessage("Potion storage is unavailable while SiegePlugin is starting.");
-            return true;
-        }
-        if (args.length < 3) {
-            sendSupplyUsage(sender, label);
+    private boolean supply(CommandSender sender, String label, String[] args) {
+        if (storages == null || args.length < 3) {
+            supplyUsage(sender, label);
             return true;
         }
         return switch (args[2].toLowerCase(Locale.ROOT)) {
-            case "register" -> handleSupplyRegister(sender, label, args);
-            case "unregister" -> handleSupplyUnregister(sender, label, args);
-            case "list" -> handleSupplyList(sender, label, args);
-            case "info" -> handleSupplyInfo(sender, label, args);
+            case "register" -> supplyRegister(sender, label, args);
+            case "unregister" -> supplyUnregister(sender, label, args);
+            case "list" -> supplyList(sender, label, args);
+            case "info" -> supplyInfo(sender, label, args);
             default -> {
-                sendSupplyUsage(sender, label);
+                supplyUsage(sender, label);
                 yield true;
             }
         };
     }
 
-    private boolean handleSupplyRegister(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can register a potion storage.");
-            return true;
-        }
-        if (args.length != 4) {
+    private boolean supplyRegister(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player) || args.length != 4) {
             sender.sendMessage("Usage: /" + label + " admin supply register <red|blue>");
             return true;
         }
@@ -363,79 +221,55 @@ public final class SiegeAdminCommand {
             sender.sendMessage("Unknown team. Choose red or blue.");
             return true;
         }
-        PotionStorageService.RegistrationResult result = potionStorageService.register(player, team);
-        sender.sendMessage(result.message());
-        if (result.success()) {
-            logger.info("Potion storage registered by " + player.getName() + " for " + team + ".");
-        }
+        sender.sendMessage(storages.register(player, team).message());
         return true;
     }
 
-    private boolean handleSupplyUnregister(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can unregister a potion storage.");
-            return true;
-        }
-        if (args.length != 3) {
+    private boolean supplyUnregister(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player) || args.length != 3) {
             sender.sendMessage("Usage: /" + label + " admin supply unregister");
             return true;
         }
-        PotionStorageService.UnregistrationResult result = potionStorageService.unregister(player);
-        sender.sendMessage(result.message());
-        if (result.success()) {
-            logger.info("Potion storage unregistered by " + player.getName() + ".");
-        }
+        sender.sendMessage(storages.unregister(player).message());
         return true;
     }
 
-    private boolean handleSupplyList(CommandSender sender, String label, String[] args) {
+    private boolean supplyList(CommandSender sender, String label, String[] args) {
         if (args.length != 3) {
             sender.sendMessage("Usage: /" + label + " admin supply list");
             return true;
         }
         int count = 0;
-        for (PotionStorage storage : potionStorageService.storages()) {
+        for (PotionStorage storage : storages.storages()) {
             count++;
             sender.sendMessage("- " + storage.team().defaultDisplayName() + " "
-                    + PotionStorageTemplates.label(storage.potion()) + " at "
-                    + storage.key().first().worldName() + " "
-                    + storage.key().first().x() + ", " + storage.key().first().y() + ", "
-                    + storage.key().first().z());
+                    + PotionStorageTemplates.label(storage.potion()) + " on map "
+                    + storage.key().mapId() + " at " + storage.key().first().x() + ", "
+                    + storage.key().first().y() + ", " + storage.key().first().z());
         }
-        if (count == 0) {
-            sender.sendMessage("No potion storages are registered.");
-        }
+        if (count == 0) sender.sendMessage("No potion storages are registered.");
         return true;
     }
 
-    private boolean handleSupplyInfo(CommandSender sender, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Only a player can inspect a potion storage.");
-            return true;
-        }
-        if (args.length != 3) {
+    private boolean supplyInfo(CommandSender sender, String label, String[] args) {
+        if (!(sender instanceof Player player) || args.length != 3) {
             sender.sendMessage("Usage: /" + label + " admin supply info");
             return true;
         }
         org.bukkit.block.Block target = player.getTargetBlockExact(6);
-        PotionStorage storage = target == null ? null : potionStorageService.find(target).orElse(null);
-        if (storage == null) {
-            sender.sendMessage("Look directly at a registered potion storage within 6 blocks.");
-            return true;
-        }
-        sender.sendMessage(storage.team().defaultDisplayName() + " potion storage: "
+        PotionStorage storage = target == null ? null : storages.find(target).orElse(null);
+        sender.sendMessage(storage == null
+                ? "Look directly at a registered potion storage within 6 blocks."
+                : storage.team().defaultDisplayName() + " potion storage: "
                 + PotionStorageTemplates.label(storage.potion()) + ".");
         return true;
     }
 
-    private void sendSupplyUsage(CommandSender sender, String label) {
+    private static void supplyUsage(CommandSender sender, String label) {
         sender.sendMessage("Usage: /" + label + " admin supply <register <red|blue>|unregister|list|info>");
     }
 
-    private void sendUsage(CommandSender sender, String label) {
+    private static void usage(CommandSender sender, String label) {
         sender.sendMessage("Usage: /" + label + " admin <" + String.join("|", SUBCOMMANDS) + ">");
-        if (!resetService.hasSnapshot()) {
-            sender.sendMessage("WARNING: no arena snapshot exists, so /" + label + " admin resetmap is disabled.");
-        }
     }
 }

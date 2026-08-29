@@ -12,6 +12,7 @@ import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TownyAdapter;
+import woo.siegePlugin.round.RoundRole;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -40,6 +41,11 @@ public final class PlayerStateTransitionService {
     private final Map<UUID, PendingTransition> pendingTransitions = new HashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(true);
     private Consumer<Player> spectatorStateChangeHandler = ignored -> {
+    };
+    private java.util.function.BooleanSupplier roundActive = () -> true;
+    private java.util.function.BiConsumer<Player, RoundRole> activeRoleHandler = (player, role) -> {
+    };
+    private java.util.function.Consumer<UUID> lobbyReturnHandler = playerId -> {
     };
     private long operationSequence;
 
@@ -101,7 +107,10 @@ public final class PlayerStateTransitionService {
             if (!active.get() || !player.isOnline() || !rememberSpectatorContext(player)) {
                 return;
             }
-            player.setGameMode(GameMode.SPECTATOR);
+            player.setGameMode(roundActive.getAsBoolean() ? GameMode.SPECTATOR : GameMode.ADVENTURE);
+            if (roundActive.getAsBoolean()) {
+                activeRoleHandler.accept(player, RoundRole.SPECTATOR);
+            }
         });
     }
 
@@ -121,6 +130,29 @@ public final class PlayerStateTransitionService {
 
     public void setSpectatorStateChangeHandler(Consumer<Player> handler) {
         this.spectatorStateChangeHandler = Objects.requireNonNull(handler, "handler");
+    }
+
+    public void setRoundActiveSupplier(java.util.function.BooleanSupplier supplier) {
+        this.roundActive = Objects.requireNonNull(supplier, "supplier");
+    }
+
+    public void setActiveRoleHandler(java.util.function.BiConsumer<Player, RoundRole> handler) {
+        this.activeRoleHandler = Objects.requireNonNull(handler, "handler");
+    }
+
+    /**
+     * Called when a player voluntarily leaves the battlefield for the lobby, so
+     * the durable roster stops counting them as present.
+     */
+    public void setLobbyReturnHandler(java.util.function.Consumer<UUID> handler) {
+        this.lobbyReturnHandler = Objects.requireNonNull(handler, "handler");
+    }
+
+    public void discardStoredRoundInventory(UUID playerId) {
+        inventoryDao.clear(playerId).exceptionally(failure -> {
+            plugin.getLogger().log(Level.SEVERE, "Could not clear stored round inventory for " + playerId, failure);
+            return null;
+        });
     }
 
     /** Starts the guarded save, clear, and lobby teleport handoff. */
@@ -145,6 +177,9 @@ public final class PlayerStateTransitionService {
     public TransitionResult enterSpectator(Player player) {
         requireServerThread();
         PlayerContext previousContext = contextOf(player);
+        if (previousContext == PlayerContext.LOBBY) {
+            return TransitionResult.NOT_IN_SIEGE;
+        }
         TransitionResult admission = checkSpectatorEntry(
                 isTransitionPending(player),
                 previousContext == PlayerContext.SPECTATOR,
@@ -169,6 +204,7 @@ public final class PlayerStateTransitionService {
             contexts.put(player.getUniqueId(), PlayerContext.SPECTATOR);
             player.setGameMode(GameMode.SPECTATOR);
             spectatorStateChangeHandler.accept(player);
+            activeRoleHandler.accept(player, RoundRole.SPECTATOR);
             return TransitionResult.STARTED;
         }
         return TransitionResult.FAILED;
@@ -202,6 +238,69 @@ public final class PlayerStateTransitionService {
         if (contextOf(player) == PlayerContext.SIEGE) {
             kitLoadouts.apply(player);
         }
+    }
+
+    /**
+     * End-of-round evacuation. Match inventory is intentionally discarded;
+     * currency and the player's persisted kit choices live outside inventory.
+     */
+    public boolean forceRoundLobby(Player player) {
+        requireServerThread();
+        nextOperation(player.getUniqueId());
+        pendingTransitions.remove(player.getUniqueId());
+        player.closeInventory();
+        PlayerInventorySnapshot.clear(player.getInventory());
+        player.setGameMode(GameMode.ADVENTURE);
+        if (!player.teleport(lobbySettings.spawn())) {
+            return false;
+        }
+        contexts.put(player.getUniqueId(), PlayerContext.LOBBY);
+        spectatorStateChangeHandler.accept(player);
+        return true;
+    }
+
+    /** Applies Towny membership, spawn, and a fresh curated/default kit. */
+    public boolean startFreshRound(Player player, Team team, Location spawn) {
+        requireServerThread();
+        nextOperation(player.getUniqueId());
+        pendingTransitions.remove(player.getUniqueId());
+        townyAdapter.setPlayerTeam(player, team);
+        player.closeInventory();
+        PlayerInventorySnapshot.clear(player.getInventory());
+        player.setGameMode(GameMode.SURVIVAL);
+        if (!player.teleport(spawn)) {
+            return false;
+        }
+        kitLoadouts.apply(player);
+        contexts.put(player.getUniqueId(), PlayerContext.SIEGE);
+        spectatorStateChangeHandler.accept(player);
+        activeRoleHandler.accept(player, RoundRole.PLAYER);
+        return true;
+    }
+
+    /** Keeps spectator residency but scopes spectator mode to the active siege. */
+    public boolean startFreshSpectatorRound(Player player, Location destination) {
+        requireServerThread();
+        nextOperation(player.getUniqueId());
+        pendingTransitions.remove(player.getUniqueId());
+        if (!spectatorResidency.isSpectator(player)) {
+            spectatorResidency.enterSpectatorTown(player);
+        }
+        player.closeInventory();
+        PlayerInventorySnapshot.clear(player.getInventory());
+        player.setGameMode(GameMode.SPECTATOR);
+        if (!player.teleport(destination)) {
+            return false;
+        }
+        contexts.put(player.getUniqueId(), PlayerContext.SPECTATOR);
+        spectatorStateChangeHandler.accept(player);
+        activeRoleHandler.accept(player, RoundRole.SPECTATOR);
+        return true;
+    }
+
+    public boolean isInLobbyContext(Player player) {
+        requireServerThread();
+        return contextOf(player) == PlayerContext.LOBBY;
     }
 
     public void handleQuit(Player player) {
@@ -286,6 +385,8 @@ public final class PlayerStateTransitionService {
         contexts.put(player.getUniqueId(), PlayerContext.LOBBY);
         clearPending(player, operationVersion);
         spectatorStateChangeHandler.accept(player);
+        // A voluntary return: the roster keeps them, but no longer as present.
+        lobbyReturnHandler.accept(player.getUniqueId());
         player.sendMessage("You are now in the lobby. Use /siege join to return to the battle.");
     }
 
@@ -349,6 +450,7 @@ public final class PlayerStateTransitionService {
             contexts.put(player.getUniqueId(), PlayerContext.SIEGE);
             clearPending(player, operationVersion);
             spectatorStateChangeHandler.accept(player);
+            activeRoleHandler.accept(player, RoundRole.PLAYER);
             player.sendMessage("You joined " + destination.defaultDisplayName() + ".");
         } catch (RuntimeException exception) {
             logInventoryFailure("restore", player, exception);
@@ -411,7 +513,12 @@ public final class PlayerStateTransitionService {
         SpectatorResidencyHandler.Rollback rollbackForSave = residencyRollback;
         inventoryDao.save(playerId, snapshot.toBytes()).whenComplete((ignored, failure) -> {
             if (failure == null) {
-                scheduleOnServerThread(() -> clearPending(player, operationVersion));
+                scheduleOnServerThread(() -> {
+                    clearPending(player, operationVersion);
+                    if (spectatorEntry) {
+                        activeRoleHandler.accept(player, RoundRole.SPECTATOR);
+                    }
+                });
                 return;
             }
             scheduleOnServerThread(() -> handleSaveFailure(
@@ -492,6 +599,7 @@ public final class PlayerStateTransitionService {
             }
             contexts.put(player.getUniqueId(), PlayerContext.SIEGE);
             spectatorStateChangeHandler.accept(player);
+            activeRoleHandler.accept(player, RoundRole.PLAYER);
         } catch (RuntimeException exception) {
             logInventoryFailure("restore", player, exception);
             player.sendMessage("Your siege inventory could not be restored. Please contact an administrator.");
@@ -671,6 +779,7 @@ public final class PlayerStateTransitionService {
         ALREADY_IN_LOBBY,
         ALREADY_IN_SIEGE,
         NOT_IN_LOBBY,
+        NOT_IN_SIEGE,
         SPECTATOR_CONTEXT,
         NOT_SPECTATING,
         COMBAT_TAGGED,

@@ -2,9 +2,7 @@ package woo.siegePlugin.config;
 
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
-import woo.siegePlugin.arena.ArenaCleanupSettings;
 import woo.siegePlugin.capture.CaptureSettings;
-import woo.siegePlugin.cycle.ActivityCycleSettings;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopBundle;
 import woo.siegePlugin.minecart.MinecartSettings;
@@ -42,16 +40,7 @@ class CanonicalConfigTest {
         assertEquals(Duration.ofSeconds(20), scoring.tickInterval());
         assertEquals(10L, scoring.pointsPerControllerPerTick());
         assertEquals(150L, scoring.killRewardPoints());
-
-        ActivityCycleSettings cycle = ActivityCycleSettings.fromConfig(config);
-        assertTrue(cycle.enabled());
-        assertEquals(Duration.ofMinutes(45), cycle.activeDuration());
-        assertEquals(Duration.ofMinutes(2), cycle.breakDuration());
-
-        assertEquals(
-                Duration.ofHours(6),
-                ArenaCleanupSettings.fromConfig(config).mapResetInterval()
-        );
+        assertEquals(10_000L, scoring.winningScore());
 
         MinecartSettings minecarts = MinecartSettings.fromConfig(config);
         assertEquals(Duration.ofSeconds(30), minecarts.tntPlacementCooldown());
@@ -126,15 +115,29 @@ class CanonicalConfigTest {
     }
 
     @Test
+    void aStaleCycleOrSnapshotBlockFailsStartupInsteadOfBeingIgnored() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("activity-cycle.enabled", true);
+        config.set("cleanup.map-reset-interval-hours", 6);
+        config.set("arena-reset.max-snapshot-blocks", 1_000_000);
+
+        List<String> problems = CanonicalConfig.findConfigurationProblems(config);
+
+        assertEquals(3, problems.size());
+        assertTrue(problems.stream().allMatch(problem -> problem.contains("is retired; ")));
+        assertTrue(problems.stream().anyMatch(problem -> problem.startsWith("activity-cycle")));
+        assertTrue(problems.stream().anyMatch(problem -> problem.startsWith("arena-reset")));
+    }
+
+    @Test
     void combatLogIsAHardDependency() {
         YamlConfiguration pluginDescription = load("src/main/resources/plugin.yml");
 
         assertEquals(
-                List.of("Towny", "CombatLog", "Multiverse-Core"),
+                List.of("Towny", "CombatLog"),
                 pluginDescription.getStringList("depend")
         );
         assertTrue(pluginDescription.getStringList("softdepend").isEmpty());
-        assertTrue(pluginDescription.isConfigurationSection("permissions.siege.admin.resetscores"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.minecart.cooldown.bypass"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.spectate"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.rejoin"));

@@ -48,6 +48,10 @@ public final class MinecartCooldownService {
         return remainingTicks(playerId) > 0;
     }
 
+    public void clearAll() {
+        expiries.clear();
+    }
+
     /** Returns the remaining duration rounded up so reconnect never shortens it. */
     public int remainingTicks(UUID playerId) {
         Instant expiry = expiries.get(playerId);

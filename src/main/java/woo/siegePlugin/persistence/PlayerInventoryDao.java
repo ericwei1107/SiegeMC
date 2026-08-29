@@ -66,4 +66,18 @@ public final class PlayerInventoryDao {
             }
         });
     }
+
+    public CompletableFuture<Void> clear(UUID playerId) {
+        Objects.requireNonNull(playerId, "playerId");
+        return database.submit(connection -> {
+            try (PreparedStatement statement = connection.prepareStatement(
+                    "UPDATE players SET stored_inventory = NULL, inventory_updated_at = ? WHERE player_uuid = ?"
+            )) {
+                statement.setLong(1, System.currentTimeMillis());
+                statement.setString(2, playerId.toString());
+                statement.executeUpdate();
+            }
+            return null;
+        });
+    }
 }

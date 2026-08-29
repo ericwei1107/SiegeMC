@@ -1,8 +1,7 @@
 package woo.siegePlugin.score;
 
 import org.junit.jupiter.api.Test;
-import woo.siegePlugin.cycle.SiegePhase;
-import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.round.RoundActivityStatus;
 import woo.siegePlugin.capture.BannerControlStatus;
 import woo.siegePlugin.persistence.ScoreReason;
 import woo.siegePlugin.team.Team;
@@ -19,7 +18,7 @@ class ScoringServiceTest {
 
     @Test
     void sessionPointsOnlyAcceptCallbacksFromTheCurrentActiveWindow() {
-        SiegePhaseStatus active = () -> SiegePhase.ACTIVE;
+        RoundActivityStatus active = () -> true;
 
         assertTrue(ScoringService.shouldApplySessionPoints(ScoreReason.BANNER_CONTROL, active, 4L, 4L));
         assertFalse(ScoringService.shouldApplySessionPoints(ScoreReason.BANNER_CONTROL, active, 4L, 5L));
@@ -27,8 +26,8 @@ class ScoringServiceTest {
 
     @Test
     void sessionPointsRejectCallbacksWhileTheCycleIsOnBreakOrForDeathRewards() {
-        SiegePhaseStatus breaking = () -> SiegePhase.BREAK;
-        SiegePhaseStatus active = () -> SiegePhase.ACTIVE;
+        RoundActivityStatus breaking = () -> false;
+        RoundActivityStatus active = () -> true;
 
         assertFalse(ScoringService.shouldApplySessionPoints(ScoreReason.BANNER_CONTROL, breaking, 4L, 4L));
         assertFalse(ScoringService.shouldApplySessionPoints(ScoreReason.ENEMY_DEATH_BONUS, active, 4L, 4L));
@@ -40,14 +39,14 @@ class ScoringServiceTest {
         UUID second = UUID.randomUUID();
         BannerControlStatus control = control(Team.RED, Set.of(first, second));
 
-        assertEquals(Set.of(first, second), ScoringService.rewardableControllerIds(() -> SiegePhase.ACTIVE, control));
-        assertTrue(ScoringService.rewardableControllerIds(() -> SiegePhase.BREAK, control).isEmpty());
+        assertEquals(Set.of(first, second), ScoringService.rewardableControllerIds(() -> true, control));
+        assertTrue(ScoringService.rewardableControllerIds(() -> false, control).isEmpty());
     }
 
     @Test
     void bannerCurrencyDoesNotPayWithoutControl() {
         assertTrue(ScoringService.rewardableControllerIds(
-                () -> SiegePhase.ACTIVE,
+                () -> true,
                 control(null, Set.of(UUID.randomUUID()))
         ).isEmpty());
     }

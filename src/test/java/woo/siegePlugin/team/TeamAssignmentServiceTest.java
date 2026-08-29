@@ -7,12 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class TeamAssignmentServiceTest {
 
     @Test
-    void assignsRedWhenResidentCountsAreTied() {
+    void assignsRedWhenActiveOnlineCountsAreTied() {
         assertEquals(Team.RED, TeamAssignmentService.selectSmallerTeam(4, 4));
     }
 
     @Test
-    void assignsTheTeamWithFewerResidents() {
+    void assignsTheTeamWithFewerActiveOnlinePlayers() {
         assertEquals(Team.RED, TeamAssignmentService.selectSmallerTeam(2, 5));
         assertEquals(Team.BLUE, TeamAssignmentService.selectSmallerTeam(6, 3));
     }

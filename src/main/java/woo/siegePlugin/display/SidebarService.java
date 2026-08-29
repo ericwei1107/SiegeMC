@@ -14,13 +14,11 @@ import org.bukkit.scoreboard.Score;
 import org.bukkit.scoreboard.Scoreboard;
 import woo.siegePlugin.team.Team;
 
-import java.time.Duration;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Renders shared siege state onto every player's personal scoreboard. Later
- * scoring, capture, and activity-cycle stages call the update methods here.
+ * scoring and capture services call the update methods here.
  */
 public final class SidebarService {
 
@@ -66,6 +64,11 @@ public final class SidebarService {
         render(objective, lines);
     }
 
+    /** Called once per activation so every viewer sees the live map and target. */
+    public void updateRound(String mapDisplayName, long scoreLimit) {
+        updateSnapshot(snapshot.withRound(mapDisplayName, scoreLimit));
+    }
+
     public void updateScores(long redScore, long blueScore) {
         updateSnapshot(snapshot.withScores(redScore, blueScore));
     }
@@ -76,10 +79,6 @@ public final class SidebarService {
 
     public void updateSessionPoints(long redSessionPoints, long blueSessionPoints) {
         updateSnapshot(snapshot.withSessionPoints(redSessionPoints, blueSessionPoints));
-    }
-
-    public void updateCycleTimeRemaining(Duration remaining) {
-        updateSnapshot(snapshot.withCycleTimeRemaining(remaining));
     }
 
     public SidebarSnapshot snapshot() {
@@ -120,28 +119,22 @@ public final class SidebarService {
                 .orElse(Component.text("None (0)", NamedTextColor.GRAY));
 
         return List.of(
+                label("Map: ").append(Component.text(
+                        state.mapDisplayName().isBlank() ? "Preparing…" : state.mapDisplayName(),
+                        NamedTextColor.WHITE
+                )),
                 label("ATK: ").append(redName),
                 label("DEF: ").append(blueName),
                 label("Red points: ").append(Component.text(state.redScore(), identityColors.get(Team.RED))),
                 label("Blue points: ").append(Component.text(state.blueScore(), identityColors.get(Team.BLUE))),
+                label("Target: ").append(Component.text(
+                        state.scoreLimit() <= 0L ? "—" : Long.toString(state.scoreLimit()),
+                        NamedTextColor.WHITE
+                )),
                 label("Banner Control: ").append(bannerControl),
-                label("ATK BAT Points: ").append(Component.text(state.redSessionPoints(), identityColors.get(Team.RED))),
-                label("DEF BAT Points: ").append(Component.text(state.blueSessionPoints(), identityColors.get(Team.BLUE))),
-                label("BAT Time Left: ").append(Component.text(
-                        state.cycleTimeRemaining().map(SidebarService::formatDuration).orElse("Not started"),
-                        NamedTextColor.GOLD
-                ))
+                label("ATK Banner Points: ").append(Component.text(state.redSessionPoints(), identityColors.get(Team.RED))),
+                label("DEF Banner Points: ").append(Component.text(state.blueSessionPoints(), identityColors.get(Team.BLUE)))
         );
-    }
-
-    static String formatDuration(Duration duration) {
-        long totalSeconds = Math.max(0L, Objects.requireNonNull(duration).toSeconds());
-        long hours = totalSeconds / 3600L;
-        long minutes = (totalSeconds % 3600L) / 60L;
-        long seconds = totalSeconds % 60L;
-        return hours > 0L
-                ? String.format("%d:%02d:%02d", hours, minutes, seconds)
-                : String.format("%d:%02d", minutes, seconds);
     }
 
     static Component title(SidebarSettings settings) {

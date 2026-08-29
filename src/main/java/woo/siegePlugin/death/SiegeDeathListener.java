@@ -5,41 +5,46 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
-import woo.siegePlugin.cycle.SiegePhaseStatus;
 import woo.siegePlugin.economy.CurrencyService;
+import woo.siegePlugin.round.ActiveCombatEligibility;
 import woo.siegePlugin.score.ScoringService;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TownyAdapter;
+import woo.siegePlugin.stats.MatchStatsTracker;
 
 /**
- * The single death handler for siege rewards. Stage 4.4j extends this with
- * killer currency; keeping one listener means both rewards always agree on
- * whether a death qualified.
+ * The single death handler for siege rewards; keeping one listener means score,
+ * currency, and kill MVP always agree on whether a death qualified.
  *
- * <p>Deliberately has no killer requirement and no location gate: a team
- * player dying anywhere, to anything, credits the other side.</p>
+ * <p>Only an opposing battlefield fighter's kill credits anything. Every other
+ * eligible siege death — environmental, self, friendly, or one whose score write
+ * was rejected — receives exactly one announcement showing a zero-point change,
+ * so the chat log never implies points were awarded when they were not.</p>
  */
 public final class SiegeDeathListener implements Listener {
 
     private final TownyAdapter townyAdapter;
     private final ScoringService scoringService;
     private final CurrencyService currencyService;
-    private final SiegePhaseStatus phaseStatus;
+    private final ActiveCombatEligibility eligibility;
     private final PlayerStateTransitionService playerStateTransitions;
+    private final MatchStatsTracker statsTracker;
 
     public SiegeDeathListener(
             TownyAdapter townyAdapter,
             ScoringService scoringService,
             CurrencyService currencyService,
-            SiegePhaseStatus phaseStatus,
-            PlayerStateTransitionService playerStateTransitions
+            ActiveCombatEligibility eligibility,
+            PlayerStateTransitionService playerStateTransitions,
+            MatchStatsTracker statsTracker
     ) {
         this.townyAdapter = townyAdapter;
         this.scoringService = scoringService;
         this.currencyService = currencyService;
-        this.phaseStatus = phaseStatus;
+        this.eligibility = eligibility;
         this.playerStateTransitions = playerStateTransitions;
+        this.statsTracker = statsTracker;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -51,56 +56,48 @@ public final class SiegeDeathListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        // During BREAK a death earns neither score nor currency, so nothing
-        // below this line — including the Towny lookup — needs to run.
-        if (!phaseStatus.isActive()) {
-            return;
-        }
-
         Player victim = event.getEntity();
+        // Lobby, spectator, other-world, and unrostered deaths are not siege
+        // deaths at all: no announcement, no score, no currency.
+        if (!eligibility.isEligibleFighter(victim)) {
+            return;
+        }
+        String matchId = eligibility.activeMatchId().orElse(null);
         Team victimTeam = townyAdapter.getPlayerTeam(victim).orElse(null);
-        if (victimTeam == null) {
+        if (matchId == null || victimTeam == null) {
             return;
         }
 
-        if (scoringService.awardEnemyDeathBonus(victimTeam.opponent())) {
-            announceDeath(victim, victimTeam);
-        }
-        awardKillerCurrency(victim, victimTeam);
-    }
-
-    private void announceDeath(Player victim, Team victimTeam) {
-        long points = scoringService.killRewardPoints();
         Player killer = victim.getKiller();
-        if (killer != null && !killer.equals(victim)) {
+        Team killerTeam = killer == null ? null : townyAdapter.getPlayerTeam(killer).orElse(null);
+        boolean creditableKill = killer != null
+                && !killer.equals(victim)
+                && killerTeam == victimTeam.opponent()
+                && eligibility.isEligibleFighter(killer);
+        if (!creditableKill) {
+            victim.getServer().broadcast(SiegeDeathMessage.died(victimTeam, victim.getName(), 0L));
+            return;
+        }
+
+        statsTracker.recordKill(matchId, killer.getUniqueId(), killer.getName());
+        String killerName = killer.getName();
+        scoringService.awardEnemyDeathBonus(killerTeam, accepted -> {
+            if (!accepted) {
+                // The round closed underneath this kill. Undo the MVP credit and
+                // still announce once, honestly showing no points were awarded.
+                statsTracker.rollbackKill(matchId, killer.getUniqueId());
+                victim.getServer().broadcast(SiegeDeathMessage.killedByPlayer(
+                        victimTeam, victim.getName(), killerName, 0L
+                ));
+                return;
+            }
             victim.getServer().broadcast(SiegeDeathMessage.killedByPlayer(
                     victimTeam,
                     victim.getName(),
-                    killer.getName(),
-                    points
+                    killerName,
+                    scoringService.killRewardPoints()
             ));
-            return;
-        }
-
-        victim.getServer().broadcast(SiegeDeathMessage.died(victimTeam, victim.getName(), points));
-    }
-
-    /**
-     * Currency needs a killer, so environmental deaths pay nothing even though
-     * they still moved the team score. Self-kills and team-kills pay nothing
-     * either.
-     */
-    private void awardKillerCurrency(Player victim, Team victimTeam) {
-        Player killer = victim.getKiller();
-        if (killer == null || killer.equals(victim)) {
-            return;
-        }
-
-        Team killerTeam = townyAdapter.getPlayerTeam(killer).orElse(null);
-        if (killerTeam != victimTeam.opponent()) {
-            return;
-        }
-
-        currencyService.awardKill(killer);
+            currencyService.awardKill(killer);
+        });
     }
 }

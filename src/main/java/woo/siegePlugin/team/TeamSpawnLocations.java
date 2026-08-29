@@ -66,4 +66,10 @@ public final class TeamSpawnLocations {
     public Location get(Team team) {
         return Objects.requireNonNull(locations.get(team), "No spawn configured for " + team).clone();
     }
+
+    public void rebind(Map<Team, Location> updated) {
+        for (Team team : Team.values()) {
+            locations.put(team, Objects.requireNonNull(updated.get(team), "Missing spawn for " + team).clone());
+        }
+    }
 }

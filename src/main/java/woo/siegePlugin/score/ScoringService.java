@@ -3,44 +3,51 @@ package woo.siegePlugin.score;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 import woo.siegePlugin.capture.BannerControlStatus;
-import woo.siegePlugin.cycle.SiegePhaseStatus;
+import woo.siegePlugin.round.RoundActivityStatus;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.persistence.MatchScoreDao;
 import woo.siegePlugin.persistence.MatchDefinition;
 import woo.siegePlugin.persistence.MatchRecord;
 import woo.siegePlugin.persistence.ScoreReason;
+import woo.siegePlugin.stats.PlayerMatchStats;
 import woo.siegePlugin.team.Team;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 
 /**
- * Awards and persists the eternal siege score.
+ * Awards the currently published finite match and hands its durable winner to rotation.
  *
  * <p>Scoring only begins once the match row is recovered, so a slow or failed
  * database never lets points accrue against a total that was never loaded.</p>
  */
-public final class ScoringService {
+public final class ScoringService implements woo.siegePlugin.round.RoundScoring {
 
-    /** The single persistent match this server scores into. */
+    /** Legacy identifier retained only for database migration tests. */
     public static final String MATCH_ID = "eternal-1";
 
     private final JavaPlugin plugin;
     private final MatchScoreDao matchScoreDao;
     private final BannerControlStatus bannerControl;
     private final SidebarService sidebarService;
-    private final SiegePhaseStatus phaseStatus;
+    private final RoundActivityStatus phaseStatus;
     private final ScoringSettings settings;
-    private final MatchDefinition matchDefinition;
+    private MatchDefinition matchDefinition;
     private final SessionPoints sessionPoints = new SessionPoints();
     private final AtomicBoolean active = new AtomicBoolean(true);
     private Consumer<Set<UUID>> bannerControlRewardHandler = playerIds -> {
     };
+    private Consumer<MatchRecord> matchCompletedHandler = ignored -> {
+    };
+    private Supplier<Collection<PlayerMatchStats>> finalStatsSupplier = List::of;
 
     private MatchRecord scores;
     private BukkitTask task;
@@ -51,9 +58,8 @@ public final class ScoringService {
             MatchScoreDao matchScoreDao,
             BannerControlStatus bannerControl,
             SidebarService sidebarService,
-            SiegePhaseStatus phaseStatus,
-            ScoringSettings settings,
-            MatchDefinition matchDefinition
+            RoundActivityStatus phaseStatus,
+            ScoringSettings settings
     ) {
         this.plugin = plugin;
         this.matchScoreDao = matchScoreDao;
@@ -61,12 +67,20 @@ public final class ScoringService {
         this.sidebarService = sidebarService;
         this.phaseStatus = phaseStatus;
         this.settings = settings;
-        this.matchDefinition = matchDefinition;
     }
 
+    /**
+     * Starts the accrual tick only. No match is loaded here: the rotation
+     * coordinator decides which match exists and calls {@link #activateMatch},
+     * so scoring can never open against a boot-time world nobody is playing on.
+     */
     public void start() {
-        matchScoreDao.loadOrCreate(matchDefinition).whenComplete((loaded, failure) ->
-                onServerThread(() -> finishStart(loaded, failure))
+        publishSessionPoints();
+        this.task = plugin.getServer().getScheduler().runTaskTimer(
+                plugin,
+                this::awardBannerControlPoints,
+                scoringPeriodTicks(),
+                scoringPeriodTicks()
         );
     }
 
@@ -79,12 +93,17 @@ public final class ScoringService {
     }
 
     /**
-     * Clears the eternal score and ledgers the reversal. BAT session points
+     * Compatibility API for explicit tooling; normal rollover always creates
+     * a new match and never mutates completed history. Banner session points
      * remain intact because only a new ACTIVE window resets them. The
      * completion runs on the server thread.
      */
     public void resetScores(BiConsumer<MatchRecord, Throwable> completion) {
-        matchScoreDao.reset(MATCH_ID).whenComplete((reset, failure) -> onServerThread(() -> {
+        if (matchDefinition == null) {
+            completion.accept(null, new IllegalStateException("No siege match is active"));
+            return;
+        }
+        matchScoreDao.reset(matchDefinition.matchId()).whenComplete((reset, failure) -> onServerThread(() -> {
             if (failure == null) {
                 scores = reset;
                 publishScores();
@@ -107,27 +126,44 @@ public final class ScoringService {
         bannerControlRewardHandler = handler;
     }
 
-    private void finishStart(MatchRecord loaded, Throwable failure) {
-        if (failure != null) {
-            logScoreFailure("load", failure);
-            plugin.getLogger().severe("Siege scoring is disabled because " + MATCH_ID + " could not be loaded.");
-            return;
-        }
+    public void setMatchCompletedHandler(Consumer<MatchRecord> handler) {
+        matchCompletedHandler = handler;
+    }
 
-        this.scores = loaded;
-        publishScores();
-        publishSessionPoints();
-        plugin.getLogger().info(
-                "Loaded siege match " + MATCH_ID
-                        + " (red=" + loaded.redScore() + ", blue=" + loaded.blueScore() + ")."
-        );
+    public void setFinalStatsSupplier(Supplier<Collection<PlayerMatchStats>> supplier) {
+        finalStatsSupplier = supplier;
+    }
 
-        this.task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin,
-                this::awardBannerControlPoints,
-                scoringPeriodTicks(),
-                scoringPeriodTicks()
-        );
+    /**
+     * Rebinds this service after a prepared round has been durably created.
+     *
+     * <p>A recovered row is only accepted when it is still ACTIVE and records
+     * the same map and generated world the caller is about to publish. Opening
+     * scoring against a completed match, or against a row that remembers a
+     * different world, would let points accrue somewhere nobody is playing.</p>
+     */
+    @Override
+    public void activateMatch(MatchDefinition definition, Consumer<Throwable> completion) {
+        matchScoreDao.loadOrCreate(definition).whenComplete((loaded, failure) -> onServerThread(() -> {
+            if (failure != null) {
+                completion.accept(failure);
+                return;
+            }
+            String mismatch = loaded.mismatchAgainst(definition).orElse(null);
+            if (mismatch != null) {
+                completion.accept(new IllegalStateException("Refusing to open scoring: " + mismatch));
+                return;
+            }
+            matchDefinition = definition;
+            scores = loaded;
+            beginActiveWindow();
+            publishScores();
+            completion.accept(null);
+        }));
+    }
+
+    public MatchRecord currentScores() {
+        return scores;
     }
 
     /**
@@ -136,6 +172,10 @@ public final class ScoringService {
      */
     public boolean awardEnemyDeathBonus(Team beneficiary) {
         return award(beneficiary, settings.killRewardPoints(), ScoreReason.ENEMY_DEATH_BONUS);
+    }
+
+    public void awardEnemyDeathBonus(Team beneficiary, Consumer<Boolean> completion) {
+        award(beneficiary, settings.killRewardPoints(), ScoreReason.ENEMY_DEATH_BONUS, completion);
     }
 
     /** The configured team-score award displayed in a Siege death announcement. */
@@ -151,8 +191,12 @@ public final class ScoringService {
 
         // SiegeWar's reversal multiplier is deliberately omitted.
         long points = settings.pointsForControllers(bannerControl.controllerCount());
-        award(controllingTeam, points, ScoreReason.BANNER_CONTROL);
-        awardBannerControllerCurrency(rewardableControllerIds(phaseStatus, bannerControl));
+        Set<UUID> controllers = rewardableControllerIds(phaseStatus, bannerControl);
+        award(controllingTeam, points, ScoreReason.BANNER_CONTROL, accepted -> {
+            if (accepted) {
+                awardBannerControllerCurrency(controllers);
+            }
+        });
     }
 
     private void awardBannerControllerCurrency(Set<UUID> controllerIds) {
@@ -174,31 +218,51 @@ public final class ScoringService {
      * @return {@code true} when the award was accepted for persistence
      */
     private boolean award(Team team, long points, ScoreReason reason) {
+        return award(team, points, reason, ignored -> {
+        });
+    }
+
+    private boolean award(Team team, long points, ScoreReason reason, Consumer<Boolean> completion) {
         if (points == 0L || !phaseStatus.isActive()) {
+            completion.accept(false);
             return false;
         }
-        if (scores == null) {
-            // The match never loaded, so there is no total to add to.
-            plugin.getLogger().warning("Ignoring a " + reason + " award because " + MATCH_ID + " is not loaded.");
+        if (scores == null || matchDefinition == null) {
+            // No round is published, so there is no total to add to.
+            plugin.getLogger().warning("Ignoring a " + reason + " award because no active match is loaded.");
+            completion.accept(false);
             return false;
         }
         long awardWindowGeneration = activeWindowGeneration;
+        String awardMatchId = matchDefinition.matchId();
+        Collection<PlayerMatchStats> finalStats = List.copyOf(finalStatsSupplier.get());
 
-        matchScoreDao.award(MATCH_ID, team, points, reason).whenComplete((updated, failure) ->
+        matchScoreDao.awardWithCutoff(awardMatchId, team, points, reason, finalStats).whenComplete((outcome, failure) ->
                 onServerThread(() -> {
                     if (failure != null) {
                         logScoreFailure("award", failure);
+                        completion.accept(false);
+                        return;
+                    }
+                    if (!awardMatchId.equals(matchDefinition.matchId())) {
+                        completion.accept(false);
                         return;
                     }
                     // Session points follow a successful banner-control write,
                     // so the sidebar never shows points that failed to save or
                     // rewards earned for a different reason.
-                    scores = updated;
-                    if (shouldApplySessionPoints(reason, phaseStatus, awardWindowGeneration, activeWindowGeneration)) {
+                    scores = outcome.match();
+                    if (outcome.accepted() && shouldApplySessionPoints(
+                            reason, phaseStatus, awardWindowGeneration, activeWindowGeneration
+                    )) {
                         sessionPoints.add(team, points);
                     }
                     publishScores();
                     publishSessionPoints();
+                    completion.accept(outcome.accepted());
+                    if (outcome.completedNow()) {
+                        matchCompletedHandler.accept(outcome.match());
+                    }
                 })
         );
         return true;
@@ -206,7 +270,7 @@ public final class ScoringService {
 
     static boolean shouldApplySessionPoints(
             ScoreReason reason,
-            SiegePhaseStatus phaseStatus,
+            RoundActivityStatus phaseStatus,
             long awardWindowGeneration,
             long currentWindowGeneration
     ) {
@@ -215,7 +279,7 @@ public final class ScoringService {
                 && awardWindowGeneration == currentWindowGeneration;
     }
 
-    static Set<UUID> rewardableControllerIds(SiegePhaseStatus phaseStatus, BannerControlStatus bannerControl) {
+    static Set<UUID> rewardableControllerIds(RoundActivityStatus phaseStatus, BannerControlStatus bannerControl) {
         if (!phaseStatus.isActive() || bannerControl.controllingTeam().isEmpty()) {
             return Set.of();
         }

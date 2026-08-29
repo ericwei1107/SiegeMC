@@ -60,6 +60,17 @@ class MinecartCooldownServiceTest {
         assertFalse(cooldowns.isActive(PLAYER_ID));
     }
 
+    @Test
+    void clearsTransientCooldownsWhenTheMapChanges() {
+        MinecartCooldownService cooldowns = new MinecartCooldownService(Duration.ofSeconds(30));
+
+        cooldowns.start(PLAYER_ID);
+        cooldowns.clearAll();
+
+        assertFalse(cooldowns.isActive(PLAYER_ID));
+        assertEquals(0, cooldowns.remainingTicks(PLAYER_ID));
+    }
+
     private static final class MutableClock extends Clock {
 
         private Instant instant;

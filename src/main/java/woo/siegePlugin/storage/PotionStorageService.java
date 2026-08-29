@@ -9,6 +9,8 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.map.ActiveMapWorld;
+import woo.siegePlugin.map.MapBounds;
 import woo.siegePlugin.team.Team;
 import woo.siegePlugin.team.TownyAdapter;
 
@@ -27,38 +29,59 @@ public final class PotionStorageService {
         WRONG_TEAM
     }
 
+    private final JavaPlugin plugin;
     private final PotionStorageStore store;
     private final PotionStorageRegistry registry;
     private final PotionStorageLabels labels;
     private final TownyAdapter townyAdapter;
     private final PotionStorageLocks locks = new PotionStorageLocks();
 
+    /** Null until a round publishes a map; nothing resolves as a supply before then. */
+    private String activeMapId;
+    private String activeRuntimeWorld;
+    private MapBounds activeBounds;
+    private java.util.function.Predicate<Player> battlefieldFighter = player -> true;
+
     public PotionStorageService(JavaPlugin plugin, TownyAdapter townyAdapter) {
-        Objects.requireNonNull(plugin, "plugin");
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.store = new PotionStorageStore(new File(plugin.getDataFolder(), "potion-storages.yml"), plugin.getLogger());
         this.registry = store.load();
         this.labels = new PotionStorageLabels(plugin);
         this.townyAdapter = Objects.requireNonNull(townyAdapter, "townyAdapter");
-        labels.rebuild(registry);
     }
 
     public Optional<PotionStorage> find(Block block) {
-        return keyFor(block).flatMap(registry::find);
+        return activeKeyFor(block).flatMap(registry::find);
     }
 
     public Optional<PotionStorage> find(Inventory inventory) {
-        return keyFor(inventory).flatMap(registry::find);
+        return activeKeyFor(inventory).flatMap(registry::find);
     }
 
     public RegistrationResult register(Player player, Team team) {
+        if (activeMapId == null) {
+            return RegistrationResult.failure(
+                    "No siege map is active. Register supplies while standing in the map they belong to."
+            );
+        }
         Block block = player.getTargetBlockExact(6);
         if (block == null) {
             return RegistrationResult.failure("Look directly at a double chest within 6 blocks.");
         }
+        if (!block.getWorld().getName().equals(activeRuntimeWorld)) {
+            return RegistrationResult.failure(
+                    "That chest is not in the active siege map, so it cannot become a supply."
+            );
+        }
         Inventory inventory = doubleChestInventory(block).orElse(null);
-        PotionStorageKey key = keyFor(block).orElse(null);
+        PotionStorageKey key = activeKeyFor(block).orElse(null);
         if (inventory == null || key == null) {
             return RegistrationResult.failure("That block is not part of a double chest.");
+        }
+        if (!withinActiveBounds(key)) {
+            return RegistrationResult.failure(
+                    "That chest is outside this map's arena bounds, so players could not reach it in a round."
+            );
         }
         if (registry.find(key).isPresent()) {
             return RegistrationResult.failure("That double chest is already a registered potion storage.");
@@ -81,7 +104,7 @@ public final class PotionStorageService {
         }
 
         refill(storage, inventory);
-        labels.create(storage);
+        labels.create(storage, activeRuntimeWorld);
         return RegistrationResult.success(storage);
     }
 
@@ -152,13 +175,53 @@ public final class PotionStorageService {
     }
 
     public void releaseForWorld(String worldName) {
-        registry.all().stream()
-                .filter(storage -> storage.key().first().worldName().equals(worldName))
-                .forEach(this::release);
+        if (worldName.equals(activeRuntimeWorld)) {
+            activeStorages().forEach(this::release);
+        }
+    }
+
+    /** Rebuilds only the selected template's supplies in its disposable copy. */
+    public void activateMap(String mapId, String runtimeWorldName, MapBounds bounds) {
+        shutdown();
+        this.activeMapId = Objects.requireNonNull(mapId, "mapId");
+        this.activeRuntimeWorld = Objects.requireNonNull(runtimeWorldName, "runtimeWorldName");
+        this.activeBounds = Objects.requireNonNull(bounds, "bounds");
+        rebuildActiveLabels();
+    }
+
+    /** Detaches from any map, so nothing resolves as a supply between rounds. */
+    public void deactivateMap() {
+        shutdown();
+        labels.removeAll();
+        this.activeMapId = null;
+        this.activeRuntimeWorld = null;
+        this.activeBounds = null;
+    }
+
+    /**
+     * Verifies that a freshly loaded copy really contains both halves of every
+     * supply configured for its map. This runs as part of loaded-copy admission
+     * so a map whose chests were removed from the template cannot go live.
+     */
+    public java.util.List<String> verifySupplyChests(ActiveMapWorld world, String mapId) {
+        java.util.List<String> problems = new java.util.ArrayList<>();
+        for (PotionStorage storage : registry.all()) {
+            if (!storage.key().mapId().equals(mapId)) {
+                continue;
+            }
+            for (MapChestLocation half : java.util.List.of(storage.key().first(), storage.key().second())) {
+                Block block = world.world().getBlockAt(half.x(), half.y(), half.z());
+                if (!(block.getState() instanceof Chest)) {
+                    problems.add("potion supply " + storage.id() + " expects a chest at "
+                            + half.x() + "," + half.y() + "," + half.z() + " but found " + block.getType());
+                }
+            }
+        }
+        return java.util.List.copyOf(problems);
     }
 
     public void shutdown() {
-        registry.all().forEach(storage -> inventoryFor(storage).ifPresent(inventory -> refill(storage, inventory)));
+        activeStorages().forEach(storage -> inventoryFor(storage).ifPresent(inventory -> refill(storage, inventory)));
         locks.clear();
     }
 
@@ -166,9 +229,62 @@ public final class PotionStorageService {
         return registry.all();
     }
 
+    /**
+     * Reports supplies recorded for one map that would be unusable on it.
+     * A supply outside the arena boundary is unreachable during a round, so a
+     * map with one must not be admitted to rotation until it is re-registered.
+     */
+    public java.util.List<String> findMapProblems(String mapId, MapBounds bounds) {
+        java.util.List<String> problems = new java.util.ArrayList<>();
+        for (PotionStorage storage : registry.all()) {
+            if (!storage.key().mapId().equals(mapId)) {
+                continue;
+            }
+            for (MapChestLocation half : java.util.List.of(storage.key().first(), storage.key().second())) {
+                if (!woo.siegePlugin.map.MapValidator.contains(bounds, half.x(), half.z())) {
+                    problems.add("potion supply " + storage.id() + " half at "
+                            + half.x() + "," + half.y() + "," + half.z() + " is outside bounds");
+                }
+            }
+        }
+        return java.util.List.copyOf(problems);
+    }
+
+    /**
+     * Legacy records keyed by a literal world name still load, but they only
+     * bind while that world happens to be active. Operators need to know which
+     * ones to re-register per map rather than discovering an empty base chest.
+     */
+    public void warnLegacyRecords(java.util.Set<String> knownMapIds) {
+        java.util.List<String> legacy = registry.all().stream()
+                .map(storage -> storage.key().mapId())
+                .filter(identity -> !knownMapIds.contains(identity))
+                .distinct()
+                .toList();
+        if (legacy.isEmpty()) {
+            return;
+        }
+        plugin.getLogger().warning("Potion supplies are still recorded against " + legacy
+                + ", which are not enabled map ids. They stay stored but inactive; re-register them per map with"
+                + " /siege admin supply register <red|blue> while standing in that map.");
+    }
+
+    /**
+     * Staff bypass aside, a supply is only usable by a fighter of the owning
+     * team who is actually present on the battlefield. Team residency alone is
+     * not enough: a lobby or spectator player must not draw from a base chest.
+     */
     private boolean mayAccess(Player player, PotionStorage storage) {
-        return player.hasPermission("siege.admin")
-                || townyAdapter.getPlayerTeam(player).map(storage.team()::equals).orElse(false);
+        if (player.hasPermission("siege.admin")) {
+            return true;
+        }
+        return battlefieldFighter.test(player)
+                && townyAdapter.getPlayerTeam(player).map(storage.team()::equals).orElse(false);
+    }
+
+    /** Binds the shared active-combat eligibility policy. */
+    public void setBattlefieldFighterCheck(java.util.function.Predicate<Player> check) {
+        this.battlefieldFighter = Objects.requireNonNull(check, "check");
     }
 
     private void release(PotionStorage storage) {
@@ -197,13 +313,66 @@ public final class PotionStorageService {
     }
 
     private Optional<Inventory> inventoryFor(PotionStorage storage) {
-        org.bukkit.World world = org.bukkit.Bukkit.getWorld(storage.key().first().worldName());
+        if (!isActive(storage)) {
+            return Optional.empty();
+        }
+        org.bukkit.World world = org.bukkit.Bukkit.getWorld(activeRuntimeWorld);
         if (world == null) {
             return Optional.empty();
         }
         return doubleChestInventory(world.getBlockAt(
                 storage.key().first().x(), storage.key().first().y(), storage.key().first().z()
         ));
+    }
+
+    /**
+     * Resolves a physical chest to a supply identity, but only when it really is
+     * in the published active map and inside its bounds. Without both checks a
+     * chest at matching coordinates in the lobby — or in any other loaded world —
+     * would answer as a team supply.
+     */
+    private Optional<PotionStorageKey> activeKeyFor(Block block) {
+        if (activeMapId == null || !block.getWorld().getName().equals(activeRuntimeWorld)) {
+            return Optional.empty();
+        }
+        return keyFor(block).map(key -> key.onMap(activeMapId)).filter(this::withinActiveBounds);
+    }
+
+    private Optional<PotionStorageKey> activeKeyFor(Inventory inventory) {
+        if (activeMapId == null) {
+            return Optional.empty();
+        }
+        return keyFor(inventory)
+                .filter(key -> inventoryWorldMatches(inventory))
+                .map(key -> key.onMap(activeMapId))
+                .filter(this::withinActiveBounds);
+    }
+
+    private static boolean inventoryWorldMatches(Inventory inventory) {
+        Location location = inventory.getLocation();
+        return location != null && location.getWorld() != null;
+    }
+
+    private boolean withinActiveBounds(PotionStorageKey key) {
+        if (activeBounds == null) {
+            return false;
+        }
+        return woo.siegePlugin.map.MapValidator.contains(activeBounds, key.first().x(), key.first().z())
+                && woo.siegePlugin.map.MapValidator.contains(activeBounds, key.second().x(), key.second().z());
+    }
+
+    private boolean isActive(PotionStorage storage) {
+        return activeMapId != null && storage.key().mapId().equals(activeMapId);
+    }
+
+    private java.util.List<PotionStorage> activeStorages() {
+        return registry.all().stream().filter(this::isActive).toList();
+    }
+
+    private void rebuildActiveLabels() {
+        if (activeRuntimeWorld != null) {
+            labels.rebuild(activeStorages(), activeRuntimeWorld);
+        }
     }
 
     private static Optional<Inventory> doubleChestInventory(Block block) {
@@ -226,9 +395,15 @@ public final class PotionStorageService {
         if (!(doubleChest.getLeftSide() instanceof Chest left) || !(doubleChest.getRightSide() instanceof Chest right)) {
             return Optional.empty();
         }
-        Location leftLocation = left.getLocation();
-        Location rightLocation = right.getLocation();
-        return Optional.of(new PotionStorageKey(ChestLocation.from(leftLocation), ChestLocation.from(rightLocation)));
+        // A placeholder map id; callers immediately rebind it to the active map
+        // with onMap(...), which is the only identity that is ever stored.
+        return Optional.of(new PotionStorageKey(half(left.getLocation()), half(right.getLocation())));
+    }
+
+    private static MapChestLocation half(Location location) {
+        return new MapChestLocation(
+                "pending", location.getBlockX(), location.getBlockY(), location.getBlockZ()
+        );
     }
 
     public record RegistrationResult(boolean success, String message, PotionStorage storage) {

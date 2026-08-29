@@ -4,14 +4,6 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-import woo.siegePlugin.arena.ArenaResetService;
-import woo.siegePlugin.arena.ArenaSnapshotLimits;
-import woo.siegePlugin.arena.ArenaResetScheduler;
-import woo.siegePlugin.arena.ArenaMaintenanceCoordinator;
-import woo.siegePlugin.arena.ArenaCleanupSettings;
-import woo.siegePlugin.arena.ArenaRegionSettings;
-import woo.siegePlugin.arena.ArenaSnapshotService;
-import woo.siegePlugin.arena.ArenaSnapshotStore;
 import woo.siegePlugin.arena.InMemoryPlacedBlockTracker;
 import woo.siegePlugin.arena.PlacedBlockListener;
 import woo.siegePlugin.arena.PlacedBlockTracker;
@@ -39,10 +31,7 @@ import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
-import woo.siegePlugin.cycle.SiegePhaseStatus;
-import woo.siegePlugin.cycle.ActivityCycleSettings;
-import woo.siegePlugin.cycle.ActivityCycleService;
-import woo.siegePlugin.cycle.SiegePhase;
+import woo.siegePlugin.round.RoundActivityStatus;
 import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.kit.KitChoiceCatalog;
 import woo.siegePlugin.kit.KitEditorListener;
@@ -56,10 +45,12 @@ import woo.siegePlugin.economy.ShopListener;
 import woo.siegePlugin.persistence.PlayerBalanceDao;
 import woo.siegePlugin.persistence.PurchaseOutboxDao;
 import woo.siegePlugin.persistence.MatchScoreDao;
-import woo.siegePlugin.persistence.MatchDefinition;
 import woo.siegePlugin.persistence.KitSelectionDao;
 import woo.siegePlugin.persistence.PlayerInventoryDao;
 import woo.siegePlugin.persistence.SiegeDatabase;
+import woo.siegePlugin.persistence.MatchStatsDao;
+import woo.siegePlugin.persistence.RotationStateDao;
+import woo.siegePlugin.persistence.WorldCleanupDao;
 import woo.siegePlugin.score.ScoringService;
 import woo.siegePlugin.score.ScoringSettings;
 import woo.siegePlugin.state.PlayerStateTransitionListener;
@@ -74,8 +65,24 @@ import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TeamSwitchService;
 import woo.siegePlugin.team.TownyAdapter;
+import woo.siegePlugin.round.ActiveCombatEligibility;
+import woo.siegePlugin.round.ActiveRoundContext;
+import woo.siegePlugin.round.ActiveRoundProvider;
+import woo.siegePlugin.round.BukkitRoundAudience;
+import woo.siegePlugin.round.BukkitRoundScheduler;
+import woo.siegePlugin.round.NativeWorldLifecycle;
+import woo.siegePlugin.round.RotationCoordinator;
+import woo.siegePlugin.round.RotationJoinListener;
+import woo.siegePlugin.round.RotationSettings;
+import woo.siegePlugin.round.RoundRoster;
+import woo.siegePlugin.map.MapManifest;
+import woo.siegePlugin.map.NativeMapWorldLoader;
+import woo.siegePlugin.map.SiegeMap;
+import woo.siegePlugin.stats.CombatStatsListener;
+import woo.siegePlugin.stats.MatchStatsService;
+import woo.siegePlugin.stats.MatchStatsTracker;
+import java.io.File;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -91,16 +98,13 @@ public final class SiegePlugin extends JavaPlugin {
     private SidebarService sidebarService;
     private CaptureService captureService;
     private ScoringService scoringService;
-    private SiegePhaseStatus phaseStatus;
-    private ActivityCycleService activityCycleService;
-    private ArenaSnapshotService arenaSnapshotService;
-    private ArenaResetService arenaResetService;
-    private ArenaResetScheduler arenaResetScheduler;
+    private RoundActivityStatus phaseStatus;
     private PlacedBlockTracker placedBlockTracker;
     private MinecartSweeper minecartSweeper;
     private SiegeMinecartMarker siegeMinecartMarker;
     private MinecartCooldownService minecartCooldownService;
     private MinecartArenaProtection minecartArenaProtection;
+    private MinecartDamageListener minecartDamageListener;
     private CurrencyService currencyService;
     private KitService kitService;
     private KitEditorListener kitEditorListener;
@@ -108,6 +112,14 @@ public final class SiegePlugin extends JavaPlugin {
     private PlayerStateTransitionService playerStateTransitionService;
     private PlayerStateTransitions playerStateTransitions;
     private PotionStorageService potionStorageService;
+    private ActiveRoundProvider activeRounds;
+    private RoundRoster roundRoster;
+    private ActiveCombatEligibility eligibility;
+    private RotationCoordinator rotationCoordinator;
+    private MatchStatsTracker matchStatsTracker;
+    private MatchStatsService matchStatsService;
+    private TeamSpawnLocations teamSpawnLocations;
+    private MapManifest mapManifest;
 
     @Override
     public void onEnable() {
@@ -133,6 +145,9 @@ public final class SiegePlugin extends JavaPlugin {
 
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
         this.potionStorageService = new PotionStorageService(this, townyAdapter);
+        potionStorageService.warnLegacyRecords(
+                mapManifest.rotationPool().stream().map(SiegeMap::id).collect(java.util.stream.Collectors.toSet())
+        );
         this.teamAssignmentService = new TeamAssignmentService(townyAdapter);
         TeamIdentityColors identityColors = TeamIdentityColors.fromConfig(getConfig());
         this.teamDisplayService = new TeamDisplayService(
@@ -147,12 +162,10 @@ public final class SiegePlugin extends JavaPlugin {
                 identityColors
         );
         teamDisplayService.setScoreboardReadyHandler(sidebarService::initializePlayer);
-        this.activityCycleService = new ActivityCycleService(
-                this,
-                sidebarService,
-                ActivityCycleSettings.fromConfig(getConfig())
-        );
-        this.phaseStatus = activityCycleService;
+        this.activeRounds = new ActiveRoundProvider();
+        this.roundRoster = new RoundRoster();
+        this.eligibility = new ActiveCombatEligibility(activeRounds, roundRoster);
+        this.phaseStatus = activeRounds;
         this.captureService = new CaptureService(
                 this,
                 townyAdapter,
@@ -167,22 +180,19 @@ public final class SiegePlugin extends JavaPlugin {
                 townyAdapter,
                 combatTagStatus,
                 captureService,
-                TeamSpawnLocations.fromConfig(getConfig(), getServer())
+                teamSpawnLocations = TeamSpawnLocations.fromConfig(getConfig(), getServer())
         );
         initializePlayerStateTransitions(combatTagStatus);
         playerStateTransitionService.setSpectatorStateChangeHandler(teamDisplayService::handleTeamSwitch);
+        playerStateTransitionService.setRoundActiveSupplier(activeRounds::isActive);
         this.scoringService = new ScoringService(
                 this,
                 new MatchScoreDao(database),
                 captureService,
                 sidebarService,
                 phaseStatus,
-                ScoringSettings.fromConfig(getConfig()),
-                MatchDefinition.eternalForWorld(Objects.requireNonNull(getConfig().getString("capture-point.world")))
+                ScoringSettings.fromConfig(getConfig())
         );
-        activityCycleService.setPhaseChangeListener(this::handlePhaseChange);
-        // A boot is the first ACTIVE window, so BAT points begin explicitly at zero.
-        scoringService.beginActiveWindow();
         MinecartSettings minecartSettings = MinecartSettings.fromConfig(getConfig());
         this.siegeMinecartMarker = new SiegeMinecartMarker(this);
         this.minecartCooldownService = new MinecartCooldownService(minecartSettings.tntPlacementCooldown());
@@ -193,8 +203,10 @@ public final class SiegePlugin extends JavaPlugin {
                 CurrencySettings.fromConfig(getConfig()),
                 siegeMinecartMarker
         );
+        currencyService.setRoundActiveSupplier(activeRounds::isActive);
+        currencyService.setDeliveryEligibility(eligibility::isEligibleFighter);
         scoringService.setBannerControlRewardHandler(currencyService::awardBannerControlTicks);
-        initializeArenaMaintenance();
+        initializeRoundServices();
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
@@ -202,18 +214,9 @@ public final class SiegePlugin extends JavaPlugin {
         kitService.loadOnlinePlayers();
         captureService.start();
         scoringService.start();
-        activityCycleService.start();
+        matchStatsService.start();
         minecartSweeper.start();
-        arenaResetScheduler.start();
-
-        if (!arenaResetService.hasSnapshot()) {
-            getLogger().warning("=====================================================================");
-            getLogger().warning("No arena snapshot exists, so /siege admin resetmap is DISABLED.");
-            getLogger().warning("Run /siege admin setresetpos1, setresetpos2, then savesnapshot confirm");
-            getLogger().warning("while the battlefield is clean.");
-            getLogger().warning("Tagged siege TNT minecart placement is blocked until that snapshot exists.");
-            getLogger().warning("=====================================================================");
-        }
+        rotationCoordinator.start();
 
         getLogger().info("SiegeMC enabled — configuration and Towny integration validated successfully.");
     }
@@ -226,17 +229,11 @@ public final class SiegePlugin extends JavaPlugin {
         if (scoringService != null) {
             scoringService.stop();
         }
-        if (activityCycleService != null) {
-            activityCycleService.stop();
+        if (rotationCoordinator != null) {
+            rotationCoordinator.stop();
         }
-        if (arenaSnapshotService != null) {
-            arenaSnapshotService.stop();
-        }
-        if (arenaResetScheduler != null) {
-            arenaResetScheduler.stop();
-        }
-        if (arenaResetService != null) {
-            arenaResetService.stop();
+        if (matchStatsService != null) {
+            matchStatsService.stop();
         }
         if (minecartSweeper != null) {
             minecartSweeper.stop();
@@ -296,10 +293,7 @@ public final class SiegePlugin extends JavaPlugin {
 
         problems.addAll(CaptureSettings.findConfigurationProblems(config, getServer()));
         problems.addAll(ScoringSettings.findConfigurationProblems(config));
-        problems.addAll(ActivityCycleSettings.findConfigurationProblems(config));
-        problems.addAll(ArenaRegionSettings.findConfigurationProblems(config, getServer()));
-        problems.addAll(ArenaSnapshotLimits.findConfigurationProblems(config));
-        problems.addAll(ArenaCleanupSettings.findConfigurationProblems(config));
+        problems.addAll(RotationSettings.findConfigurationProblems(config));
         problems.addAll(MinecartSettings.findConfigurationProblems(config));
         problems.addAll(MinecartDamageSettings.findConfigurationProblems(config));
         problems.addAll(MinecartWorldCompatibility.findProblems(config, getServer()));
@@ -318,6 +312,14 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(TeamSpawnLocations.findConfigurationProblems(config, getServer()));
         problems.addAll(TeamIdentityColors.findConfigurationProblems(config));
         problems.addAll(SidebarSettings.findConfigurationProblems(config));
+
+        File mapsFile = new File(getDataFolder(), "maps.yml");
+        problems.addAll(MapManifest.findConfigurationProblems(mapsFile));
+        try {
+            this.mapManifest = MapManifest.load(mapsFile);
+        } catch (IllegalArgumentException exception) {
+            problems.add("maps.yml could not be loaded: " + exception.getMessage());
+        }
 
         Plugin combatLog = getServer().getPluginManager().getPlugin("CombatLog");
         if (combatLog == null || !combatLog.isEnabled()) {
@@ -343,34 +345,26 @@ public final class SiegePlugin extends JavaPlugin {
                         this,
                         captureService,
                         scoringService,
-                        arenaSnapshotService,
-                        arenaResetService,
-                        activityCycleService,
                         kitService,
                         getLogger(),
-                        potionStorageService
+                        potionStorageService,
+                        rotationCoordinator
                 ),
                 currencyService,
                 kitEditorListener,
-                getLogger()
+                getLogger(),
+                rotationCoordinator
         );
         siegeCommand.setExecutor(commandHandler);
         siegeCommand.setTabCompleter(commandHandler);
     }
 
-    private void handlePhaseChange(SiegePhase previous, SiegePhase current) {
-        if (current == SiegePhase.BREAK) {
-            captureService.cancelInProgressSessions();
-            return;
-        }
-        scoringService.beginActiveWindow();
-    }
-
     private void registerListeners() {
         getServer().getPluginManager().registerEvents(
-                new TeamAssignmentListener(this, teamAssignmentService, teamDisplayService::handleJoin),
+                new TeamAssignmentListener(this, teamDisplayService::handleJoin),
                 this
         );
+        getServer().getPluginManager().registerEvents(new RotationJoinListener(this, rotationCoordinator), this);
         getServer().getPluginManager().registerEvents(
                 new TeamDisplayListener(teamDisplayService),
                 this
@@ -387,7 +381,8 @@ public final class SiegePlugin extends JavaPlugin {
                 new PlacedBlockListener(
                         placedBlockTracker,
                         townyAdapter,
-                        () -> ArenaRegionSettings.fromConfig(getConfig(), getServer())
+                        activeRounds,
+                        eligibility
                 ),
                 this
         );
@@ -396,9 +391,14 @@ public final class SiegePlugin extends JavaPlugin {
                         townyAdapter,
                         scoringService,
                         currencyService,
-                        phaseStatus,
-                        playerStateTransitionService
+                        eligibility,
+                        playerStateTransitionService,
+                        matchStatsTracker
                 ),
+                this
+        );
+        getServer().getPluginManager().registerEvents(
+                new CombatStatsListener(townyAdapter, siegeMinecartMarker, eligibility, matchStatsTracker),
                 this
         );
         getServer().getPluginManager().registerEvents(
@@ -412,7 +412,8 @@ public final class SiegePlugin extends JavaPlugin {
                         siegeMinecartMarker,
                         minecartCooldownService,
                         minecartArenaProtection,
-                        MinecartSettings.fromConfig(getConfig())
+                        MinecartSettings.fromConfig(getConfig()),
+                        eligibility::isEligibleFighter
                 ),
                 this
         );
@@ -421,49 +422,83 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         CaptureSettings captureSettings = CaptureSettings.fromConfig(getConfig());
-        getServer().getPluginManager().registerEvents(
-                new MinecartDamageListener(
+        this.minecartDamageListener = new MinecartDamageListener(
                         this,
                         siegeMinecartMarker,
                         townyAdapter,
                         captureService.banner(),
                         captureSettings.radiusBlocks(),
                         MinecartDamageSettings.fromConfig(getConfig())
-                ),
-                this
-        );
+                );
+        getServer().getPluginManager().registerEvents(minecartDamageListener, this);
     }
 
-    private void initializeArenaMaintenance() {
-        ArenaSnapshotStore snapshotStore = new ArenaSnapshotStore(getDataFolder().toPath().resolve("snapshot"));
-        ArenaMaintenanceCoordinator maintenance = new ArenaMaintenanceCoordinator();
-        this.minecartArenaProtection = new MinecartArenaProtection(snapshotStore.loadRegion());
-        this.arenaSnapshotService = new ArenaSnapshotService(
-                this,
-                snapshotStore,
-                maintenance,
-                ArenaSnapshotLimits.fromConfig(getConfig())
-        );
-        arenaSnapshotService.setSnapshotSavedHandler(minecartArenaProtection::update);
+    private void initializeRoundServices() {
+        this.minecartArenaProtection = new MinecartArenaProtection();
         this.placedBlockTracker = new InMemoryPlacedBlockTracker();
-        this.arenaResetService = new ArenaResetService(
-                this,
-                snapshotStore,
-                captureService,
-                placedBlockTracker,
-                maintenance
-        );
-        this.arenaResetScheduler = new ArenaResetScheduler(
-                this,
-                arenaResetService,
-                ArenaCleanupSettings.fromConfig(getConfig()).mapResetInterval()
-        );
-
         this.minecartSweeper = new MinecartSweeper(
                 this,
-                Objects.requireNonNull(getConfig().getString("capture-point.world")),
                 MinecartSettings.fromConfig(getConfig()).stationaryCleanupThreshold()
         );
+        this.matchStatsTracker = new MatchStatsTracker();
+        this.matchStatsService = new MatchStatsService(
+                this,
+                new MatchStatsDao(database),
+                matchStatsTracker,
+                captureService,
+                phaseStatus,
+                () -> scoringService.currentScores() == null ? null : scoringService.currentScores().matchId()
+        );
+        scoringService.setFinalStatsSupplier(matchStatsTracker::snapshot);
+
+        NativeMapWorldLoader loader = new NativeMapWorldLoader(this);
+        this.rotationCoordinator = new RotationCoordinator(
+                getLogger(),
+                new BukkitRoundScheduler(this),
+                new BukkitRoundAudience(getServer(), playerStateTransitionService),
+                new NativeWorldLifecycle(
+                        loader,
+                        (world, mapId) -> potionStorageService.verifySupplyChests(world, mapId),
+                        this::trackedGeneratedWorldNames
+                ),
+                activeRounds,
+                roundRoster,
+                new RotationStateDao(database),
+                new MatchScoreDao(database),
+                new MatchStatsDao(database),
+                new WorldCleanupDao(database),
+                () -> MapManifest.load(new File(getDataFolder(), "maps.yml")),
+                potionStorageService::findMapProblems,
+                scoringService,
+                matchStatsTracker,
+                RotationSettings.fromConfig(getConfig()),
+                ScoringSettings.fromConfig(getConfig()).winningScore(),
+                this::rebindRoundServices,
+                new java.util.Random()
+        );
+        scoringService.setMatchCompletedHandler(rotationCoordinator::onMatchCompleted);
+        playerStateTransitionService.setLobbyReturnHandler(rotationCoordinator::markReturnedToLobby);
+        teamSwitchService.setTeamSwitchHandler(rotationCoordinator::recordTeamSwitch);
+        teamSwitchService.setFighterHeadcount(team -> roundRoster.battlefieldFighterCount(
+                team, playerId -> getServer().getPlayer(playerId) != null
+        ));
+        captureService.setBattlefieldFighterCheck(eligibility::isEligibleFighter);
+        potionStorageService.setBattlefieldFighterCheck(eligibility::isEligibleFighter);
+    }
+
+    /**
+     * Generated world folders the plugin still accounts for. Anything else on
+     * disk is reported for manual review rather than deleted automatically.
+     */
+    private java.util.Set<String> trackedGeneratedWorldNames() {
+        java.util.Set<String> tracked = new java.util.HashSet<>();
+        activeRounds.current().ifPresent(context -> tracked.add(context.world().getName()));
+        getServer().getWorlds().forEach(world -> {
+            if (world.getName().startsWith("siege-active-")) {
+                tracked.add(world.getName());
+            }
+        });
+        return tracked;
     }
 
     private void initializePlayerStateTransitions(CombatTagStatus combatTagStatus) {
@@ -495,7 +530,7 @@ public final class SiegePlugin extends JavaPlugin {
                 LobbySettings.fromConfig(getConfig(), getServer()),
                 townyAdapter,
                 teamAssignmentService,
-                TeamSpawnLocations.fromConfig(getConfig(), getServer()),
+                teamSpawnLocations,
                 combatTagStatus,
                 captureService
         );
@@ -523,5 +558,18 @@ public final class SiegePlugin extends JavaPlugin {
                 }
             });
         });
+    }
+
+    private void rebindRoundServices(ActiveRoundContext context) {
+        sidebarService.updateRound(context.map().displayName(), context.scoreLimit());
+        captureService.rebind(context.capturePoint(), context.map().captureRadius());
+        teamSpawnLocations.rebind(context.spawns());
+        minecartArenaProtection.rebind(context.world().getName(), context.bounds());
+        minecartSweeper.rebind(context.world().getName());
+        minecartCooldownService.clearAll();
+        getServer().getOnlinePlayers().forEach(player -> player.setCooldown(org.bukkit.Material.TNT_MINECART, 0));
+        minecartDamageListener.rebind(captureService.banner(), context.map().captureRadius());
+        placedBlockTracker.clearAll();
+        potionStorageService.activateMap(context.map().id(), context.world().getName(), context.bounds());
     }
 }

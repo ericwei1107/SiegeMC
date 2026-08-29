@@ -8,6 +8,40 @@
 # Each initial entry is intentionally disabled until staff set Red/Blue spawns,
 # the SiegePlugin capture-banner location/radius, and the arena boundary.
 # Sieges' old territory/team configuration is not used.
+#
+# --------------------------------------------------------------------------
+# Required schema for an enabled map
+# --------------------------------------------------------------------------
+#
+#   <map-id>:
+#     enabled: true
+#     display-name: "Siege of Somewhere"   # shown in chat and on the sidebar
+#     template-folder: "somewhere"         # a single folder name under
+#                                          # maps/templates, never a path
+#     red-spawn:   { x: 0.5, y: 65, z: 0.5, yaw: 0, pitch: 0 }
+#     blue-spawn:  { x: 0.5, y: 65, z: 0.5, yaw: 180, pitch: 0 }
+#     capture-point:
+#       x: 0.5
+#       y: 65
+#       z: 0.5
+#       radius: 16                         # applies horizontally AND vertically
+#     bounds:                              # inclusive arena boundary, X/Z only
+#       min-x: -256
+#       min-z: -256
+#       max-x: 256
+#       max-z: 256
+#
+# Coordinates are template-relative: they are resolved against whichever
+# generated active copy the round is played in, so they never mention a world
+# name. `yaw`/`pitch` are optional and default to 0.
+#
+# Every spawn and the whole capture radius must sit inside `bounds`, and every
+# Y value must be a legal world height. Run `/siege admin rotation validate all`
+# after editing this file — it reloads maps.yml and reports each problem.
+#
+# Registered potion supplies are stored separately in potion-storages.yml and
+# are keyed by map id, so re-register them once per map with
+# `/siege admin supply register <red|blue>` while standing in that map.
 
 maps:
   al_quds:

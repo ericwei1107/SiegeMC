@@ -3,6 +3,7 @@ package woo.siegePlugin.persistence;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import woo.siegePlugin.team.Team;
+import woo.siegePlugin.stats.PlayerMatchStats;
 
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -11,12 +12,16 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MatchScoreDaoTest {
 
@@ -148,6 +153,148 @@ class MatchScoreDaoTest {
             assertEquals(60L, migrated.blueScore());
             assertEquals(1, await(dao.countLedgerEntries(MATCH_ID)));
         }
+    }
+
+    @Test
+    void firstCutoffCrossingPreservesOvershootAndRejectsEveryLaterAward() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-cutoff", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+            activateRotationFor(database, match.matchId());
+            await(dao.awardWithCutoff(match.matchId(), Team.RED, 95L, ScoreReason.BANNER_CONTROL));
+
+            AwardOutcome winner = await(dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 10L, ScoreReason.BANNER_CONTROL
+            ));
+            AwardOutcome rejected = await(dao.awardWithCutoff(
+                    match.matchId(), Team.BLUE, 150L, ScoreReason.ENEMY_DEATH_BONUS
+            ));
+
+            assertTrue(winner.accepted());
+            assertTrue(winner.completedNow());
+            assertEquals(105L, winner.match().redScore());
+            assertEquals(Team.RED, winner.match().winner());
+            assertEquals(MatchStatus.COMPLETED, winner.match().status());
+            assertFalse(rejected.accepted());
+            assertEquals(0L, rejected.match().blueScore());
+            assertEquals(2, await(dao.countLedgerEntries(match.matchId())));
+        }
+    }
+
+    @Test
+    void concurrentCrossingAwardsProduceExactlyOneCompletion() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-race", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+            activateRotationFor(database, match.matchId());
+
+            CompletableFuture<AwardOutcome> red = dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 100L, ScoreReason.BANNER_CONTROL
+            );
+            CompletableFuture<AwardOutcome> blue = dao.awardWithCutoff(
+                    match.matchId(), Team.BLUE, 100L, ScoreReason.BANNER_CONTROL
+            );
+            List<AwardOutcome> outcomes = List.of(await(red), await(blue));
+
+            assertEquals(1L, outcomes.stream().filter(AwardOutcome::completedNow).count());
+            assertEquals(1L, outcomes.stream().filter(AwardOutcome::accepted).count());
+            assertEquals(1, await(dao.countLedgerEntries(match.matchId())));
+        }
+    }
+
+    @Test
+    void winningTransactionStoresTheFinalMvpSnapshot() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-stats", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+            activateRotationFor(database, match.matchId());
+            UUID playerId = UUID.randomUUID();
+
+            AwardOutcome outcome = await(dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 100L, ScoreReason.ENEMY_DEATH_BONUS,
+                    List.of(new PlayerMatchStats(playerId, "Winner", 4L, 27.5D, 19L))
+            ));
+
+            assertTrue(outcome.completedNow());
+            PlayerMatchStats stored = await(new MatchStatsDao(database).load(match.matchId())).getFirst();
+            assertEquals(playerId, stored.playerId());
+            assertEquals(4L, stored.kills());
+            assertEquals(27.5D, stored.damage());
+            assertEquals(19L, stored.bannerSeconds());
+        }
+    }
+
+    @Test
+    void aWinningAwardRollsBackCompletelyWhenRotationStateIsMissing() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-orphan", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+            // Deliberately no rotation_state row: nothing owns this match.
+
+            assertThrows(ExecutionException.class, () -> dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 100L, ScoreReason.BANNER_CONTROL,
+                    List.of(new PlayerMatchStats(UUID.randomUUID(), "Nobody", 3L, 10D, 5L))
+            ).get(5, TimeUnit.SECONDS));
+
+            MatchRecord after = await(dao.load(match.matchId()));
+            assertEquals(0L, after.redScore(), "the score must not survive the failed transaction");
+            assertEquals(MatchStatus.ACTIVE, after.status());
+            assertNull(after.winner());
+            assertNull(after.endedAt());
+            assertEquals(0, await(dao.countLedgerEntries(match.matchId())));
+            assertTrue(await(new MatchStatsDao(database).load(match.matchId())).isEmpty());
+        }
+    }
+
+    @Test
+    void aWinningAwardRollsBackWhenRotationStateNamesADifferentMatch() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-mismatch", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+            activateRotationFor(database, "some-other-match");
+
+            assertThrows(ExecutionException.class, () -> dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 100L, ScoreReason.BANNER_CONTROL
+            ).get(5, TimeUnit.SECONDS));
+
+            MatchRecord after = await(dao.load(match.matchId()));
+            assertEquals(0L, after.redScore());
+            assertEquals(MatchStatus.ACTIVE, after.status());
+            assertEquals(0, await(dao.countLedgerEntries(match.matchId())));
+        }
+    }
+
+    @Test
+    void aNonCrossingAwardDoesNotNeedRotationState() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            MatchDefinition match = MatchDefinition.rotating("rotation-partial", "kazan", "active", 100L);
+            await(dao.loadOrCreate(match));
+
+            AwardOutcome outcome = await(dao.awardWithCutoff(
+                    match.matchId(), Team.RED, 40L, ScoreReason.BANNER_CONTROL
+            ));
+
+            assertTrue(outcome.accepted());
+            assertFalse(outcome.completedNow());
+            assertEquals(40L, outcome.match().redScore());
+        }
+    }
+
+    /**
+     * The winning transaction only commits when durable rotation state is ACTIVE
+     * for that match, so every cutoff test must set that state up first.
+     */
+    private static void activateRotationFor(SiegeDatabase database, String matchId) throws Exception {
+        await(new RotationStateDao(database).save(new woo.siegePlugin.round.RotationState(
+                woo.siegePlugin.round.RoundPhase.ACTIVE, 1L, 0L, matchId, "kazan", "active",
+                null, null, null, null, List.of()
+        )));
     }
 
     private static void createLegacyDatabase(Path databasePath) throws Exception {

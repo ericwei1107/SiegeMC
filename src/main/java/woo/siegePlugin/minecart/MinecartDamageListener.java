@@ -25,8 +25,8 @@ public final class MinecartDamageListener implements Listener {
     private final JavaPlugin plugin;
     private final SiegeMinecartMarker marker;
     private final TownyAdapter townyAdapter;
-    private final CaptureBanner banner;
-    private final int captureRadiusBlocks;
+    private CaptureBanner banner;
+    private int captureRadiusBlocks;
     private final MinecartDamagePolicy damagePolicy;
     private final Map<UUID, MinecartHeadcounts> explosionHeadcounts = new HashMap<>();
 
@@ -44,6 +44,12 @@ public final class MinecartDamageListener implements Listener {
         this.banner = banner;
         this.captureRadiusBlocks = captureRadiusBlocks;
         this.damagePolicy = new MinecartDamagePolicy(damageSettings);
+    }
+
+    public void rebind(CaptureBanner banner, int captureRadiusBlocks) {
+        this.banner = banner;
+        this.captureRadiusBlocks = captureRadiusBlocks;
+        explosionHeadcounts.clear();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)

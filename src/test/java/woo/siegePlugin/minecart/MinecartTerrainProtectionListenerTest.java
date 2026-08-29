@@ -7,12 +7,11 @@ import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.junit.jupiter.api.Test;
-import woo.siegePlugin.arena.ArenaRegion;
+import woo.siegePlugin.map.MapBounds;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -21,9 +20,8 @@ class MinecartTerrainProtectionListenerTest {
 
     @Test
     void preservesArenaBlocksForAnOrdinaryUntypedEntityExplosion() {
-        MinecartArenaProtection protection = new MinecartArenaProtection(Optional.of(
-                ArenaRegion.between("siegeworld", 0, 0, 0, 10, 10, 10)
-        ));
+        MinecartArenaProtection protection = new MinecartArenaProtection();
+        protection.rebind("siegeworld", new MapBounds(0, 0, 10, 10));
         MinecartTerrainProtectionListener listener = new MinecartTerrainProtectionListener(protection);
         Block protectedBlock = block("siegeworld", 5, 5);
         Block outsideBlock = block("siegeworld", 11, 5);
