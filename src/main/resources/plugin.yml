@@ -24,6 +24,9 @@ commands:
   admincommands:
     description: Show SiegePlugin administrator commands
     usage: /admincommands
+  discord:
+    description: Open the SiegeMC Discord invite
+    usage: /discord
 
 permissions:
   siege.team:

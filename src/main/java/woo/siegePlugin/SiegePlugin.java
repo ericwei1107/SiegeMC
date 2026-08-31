@@ -1,5 +1,8 @@
 package woo.siegePlugin;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.plugin.Plugin;
@@ -26,6 +29,7 @@ import woo.siegePlugin.minecart.MinecartWorldCompatibility;
 import woo.siegePlugin.minecart.SiegeMinecartMarker;
 import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.combat.CombatTagStatus;
+import woo.siegePlugin.combat.CombatTaggedInteractionListener;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
@@ -96,6 +100,8 @@ import java.util.logging.Level;
 
 public final class SiegePlugin extends JavaPlugin {
 
+    private static final String DISCORD_INVITE = "https://discord.gg/pQ5zjqTcg";
+
     private TownyAdapter townyAdapter;
     private TeamAssignmentService teamAssignmentService;
     private TeamSwitchService teamSwitchService;
@@ -128,6 +134,7 @@ public final class SiegePlugin extends JavaPlugin {
     private RuntimeKitOverrides runtimeKitOverrides;
     private RuntimeMapOverrides runtimeMapOverrides;
     private MapCalibrationService mapCalibrationService;
+    private CombatTagStatus combatTagStatus;
 
     @Override
     public void onEnable() {
@@ -190,7 +197,7 @@ public final class SiegePlugin extends JavaPlugin {
                 phaseStatus
         );
         Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
-        CombatTagStatus combatTagStatus = CombatLogAdapter.fromPlugin(combatLog);
+        combatTagStatus = CombatLogAdapter.fromPlugin(combatLog);
         this.teamSwitchService = new TeamSwitchService(
                 townyAdapter,
                 combatTagStatus,
@@ -380,6 +387,17 @@ public final class SiegePlugin extends JavaPlugin {
         siegeCommand.setTabCompleter(commandHandler);
         registerHelpCommand("commands", false);
         registerHelpCommand("admincommands", true);
+        registerDiscordCommand();
+    }
+
+    private void registerDiscordCommand() {
+        PluginCommand command = Objects.requireNonNull(getCommand("discord"), "Missing /discord command");
+        command.setExecutor((sender, ignored, label, args) -> {
+            sender.sendMessage(Component.text("Join SiegeMC on Discord: ", NamedTextColor.GOLD)
+                    .append(Component.text(DISCORD_INVITE, NamedTextColor.AQUA)
+                            .clickEvent(ClickEvent.openUrl(DISCORD_INVITE))));
+            return true;
+        });
     }
 
     private void registerHelpCommand(String name, boolean admin) {
@@ -405,6 +423,7 @@ public final class SiegePlugin extends JavaPlugin {
                 sender.sendMessage("/siege kit — equip or customize your personal siege kit.");
                 sender.sendMessage("/siege shop — open the battle shop during an active siege.");
                 sender.sendMessage("/siege spectate | rejoin — watch the active siege, then return to combat.");
+                sender.sendMessage("/discord — open the SiegeMC Discord invite.");
             }
             return true;
         });
@@ -428,6 +447,7 @@ public final class SiegePlugin extends JavaPlugin {
                 new CaptureListener(captureService),
                 this
         );
+        getServer().getPluginManager().registerEvents(new CombatTaggedInteractionListener(combatTagStatus), this);
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
                         placedBlockTracker,
