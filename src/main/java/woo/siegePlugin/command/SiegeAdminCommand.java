@@ -125,7 +125,6 @@ public final class SiegeAdminCommand {
         switch (args[2].toLowerCase(Locale.ROOT)) {
             case "calibrate" -> {
                 if (args.length != 4) mapUsage(sender, label);
-                else if (rotation != null && rotation.activeContext().isPresent()) sender.sendMessage("End or leave the active siege before starting calibration.");
                 else calibration.start(player, args[3]);
             }
             case "setspawn" -> { Team team = args.length == 4 ? Team.fromInput(args[3]).orElse(null) : null; if (calibration.activeFor(player).isEmpty() || team == null) sender.sendMessage("Stand in the calibration copy. Usage: /" + label + " admin map setspawn <red|blue>"); else { calibration.setSpawn(team, player.getLocation()); sender.sendMessage(team.defaultDisplayName() + " spawn saved."); } }

@@ -68,7 +68,9 @@ public final class MapCalibrationService {
     public void setSpawn(Team team, Location location) { spawns.put(team, point(location)); }
     public void setCorner(int number, Location location) {
         if (number == 1) firstCorner = location.clone(); else secondCorner = location.clone();
-        if (firstCorner != null && secondCorner != null && active != null) storages.activateMap(active.map().id(), active.world().getName(), bounds());
+        if (firstCorner != null && secondCorner != null && active != null) {
+            storages.activateCalibrationMap(active.map().id(), active.world().getName(), bounds());
+        }
     }
     public void setBanner(Location location, int radius) { banner = location.clone(); bannerRadius = radius; }
 
@@ -107,13 +109,13 @@ public final class MapCalibrationService {
     public String abort(Player player) { if (!ownsSession(player)) return "You do not have an active calibration session."; close(player); return "Calibration discarded."; }
     private void close(Player player) {
         ActiveMapWorld closing = active; active = null; owner = null; spawns.clear(); firstCorner = secondCorner = banner = null;
-        storages.deactivateMap();
+        storages.deactivateCalibrationMap();
         player.teleport(lobby.spawn()); player.setGameMode(GameMode.ADVENTURE);
         loader.unload(closing); // no save: the clean template remains immutable
     }
     private void detachForPromotion(Player player) {
         active = null; owner = null; spawns.clear(); firstCorner = secondCorner = banner = null;
-        storages.deactivateMap();
+        storages.deactivateCalibrationMap();
         player.teleport(lobby.spawn()); player.setGameMode(GameMode.ADVENTURE);
     }
     private static MapPoint point(Location location) { return new MapPoint(location.getBlockX() + .5, location.getBlockY(), location.getBlockZ() + .5, location.getYaw(), location.getPitch()); }

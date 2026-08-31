@@ -16,8 +16,14 @@ import woo.siegePlugin.team.TownyAdapter;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** Owns registration, access locking, and refill state for physical potion supplies. */
@@ -34,12 +40,10 @@ public final class PotionStorageService {
     private final PotionStorageRegistry registry;
     private final PotionStorageLabels labels;
     private final TownyAdapter townyAdapter;
-    private final PotionStorageLocks locks = new PotionStorageLocks();
 
-    /** Null until a round publishes a map; nothing resolves as a supply before then. */
-    private String activeMapId;
-    private String activeRuntimeWorld;
-    private MapBounds activeBounds;
+    /** Runtime state is snapshotted per world so calibration cannot mutate a live round. */
+    private RuntimeContext activeRound;
+    private RuntimeContext calibration;
     private java.util.function.Predicate<Player> battlefieldFighter = player -> true;
 
     public PotionStorageService(JavaPlugin plugin, TownyAdapter townyAdapter) {
@@ -51,34 +55,39 @@ public final class PotionStorageService {
     }
 
     public Optional<PotionStorage> find(Block block) {
-        return activeKeyFor(block).flatMap(registry::find);
+        return contextForWorld(block.getWorld().getName()).flatMap(context -> context.find(keyFor(block)));
     }
 
     public Optional<PotionStorage> find(Inventory inventory) {
-        return activeKeyFor(inventory).flatMap(registry::find);
+        Location location = inventory.getLocation();
+        if (location == null || location.getWorld() == null) {
+            return Optional.empty();
+        }
+        return contextForWorld(location.getWorld().getName()).flatMap(context -> context.find(keyFor(inventory)));
     }
 
     public RegistrationResult register(Player player, Team team) {
-        if (activeMapId == null) {
+        RuntimeContext context = contextForWorld(player.getWorld().getName()).orElse(null);
+        if (context == null) {
             return RegistrationResult.failure(
-                    "No siege map is active. Register supplies while standing in the map they belong to."
+                    "Stand in an active siege map or your calibration copy to register supplies."
             );
         }
         Block block = player.getTargetBlockExact(6);
         if (block == null) {
             return RegistrationResult.failure("Look directly at a double chest within 6 blocks.");
         }
-        if (!block.getWorld().getName().equals(activeRuntimeWorld)) {
+        if (!context.matchesWorld(block.getWorld().getName())) {
             return RegistrationResult.failure(
-                    "That chest is not in the active siege map, so it cannot become a supply."
+                    "That chest is not in this siege or calibration map, so it cannot become a supply."
             );
         }
         Inventory inventory = doubleChestInventory(block).orElse(null);
-        PotionStorageKey key = activeKeyFor(block).orElse(null);
+        PotionStorageKey key = context.scopedKey(keyFor(block)).orElse(null);
         if (inventory == null || key == null) {
             return RegistrationResult.failure(doubleChestDiagnostic(block));
         }
-        if (!withinActiveBounds(key)) {
+        if (!context.withinBounds(key)) {
             return RegistrationResult.failure(
                     "That chest is outside this map's arena bounds, so players could not reach it in a round."
             );
@@ -103,8 +112,9 @@ public final class PotionStorageService {
             return RegistrationResult.failure("Potion storage was not saved. Check the server log.");
         }
 
+        context.add(storage);
         refill(storage, inventory);
-        labels.create(storage, activeRuntimeWorld);
+        labels.create(storage, context.runtimeWorld());
         return RegistrationResult.success(storage);
     }
 
@@ -117,7 +127,14 @@ public final class PotionStorageService {
         if (storage == null) {
             return UnregistrationResult.failure("That chest is not a registered potion storage.");
         }
-        closeActiveStorage(storage);
+        RuntimeContext context = contextForWorld(block.getWorld().getName()).orElseThrow();
+        PotionStorage persisted = registry.find(storage.key()).orElse(null);
+        if (persisted == null) {
+            return UnregistrationResult.failure(
+                    "That storage was already removed from future rounds; this running copy keeps its snapshot."
+            );
+        }
+        closeStorage(context, storage);
         PotionStorage removed = registry.remove(storage.key());
         try {
             store.save(registry);
@@ -125,8 +142,9 @@ public final class PotionStorageService {
             registry.add(removed);
             return UnregistrationResult.failure("Potion storage was not saved. Check the server log.");
         }
-        release(storage);
-        labels.remove(storage);
+        context.remove(storage.key());
+        context.locks().releaseStorage(storage.id());
+        labels.remove(storage, context.runtimeWorld());
         return UnregistrationResult.success(storage);
     }
 
@@ -134,14 +152,18 @@ public final class PotionStorageService {
         if (!mayAccess(player, storage)) {
             return OpenResult.WRONG_TEAM;
         }
-        UUID previouslyOpenStorage = locks.storageFor(player.getUniqueId());
+        RuntimeContext context = contextForInventory(inventory).orElse(null);
+        if (context == null || context.find(storage.key()).isEmpty()) {
+            return OpenResult.WRONG_TEAM;
+        }
+        UUID previouslyOpenStorage = context.locks().storageFor(player.getUniqueId());
         if (previouslyOpenStorage != null && !previouslyOpenStorage.equals(storage.id())) {
             // Opening a new vanilla inventory should have closed the old one,
             // but release defensively so a missed close event cannot leave a
             // depleted chest or stale lock behind.
-            release(player);
+            release(context, player);
         }
-        if (!locks.acquire(storage.id(), player.getUniqueId())) {
+        if (!context.locks().acquire(storage.id(), player.getUniqueId())) {
             return OpenResult.IN_USE;
         }
         refill(storage, inventory);
@@ -149,53 +171,68 @@ public final class PotionStorageService {
     }
 
     public boolean isHolder(Player player, PotionStorage storage) {
-        return locks.isHolder(storage.id(), player.getUniqueId());
+        return contextForWorld(player.getWorld().getName())
+                .map(context -> context.locks().isHolder(storage.id(), player.getUniqueId()))
+                .orElse(false);
     }
 
     public void close(Player player, PotionStorage storage, Inventory inventory) {
-        if (!isHolder(player, storage)) {
+        RuntimeContext context = contextForInventory(inventory).orElse(null);
+        if (context == null || !context.locks().isHolder(storage.id(), player.getUniqueId())) {
             return;
         }
         refill(storage, inventory);
-        release(storage);
+        context.locks().releaseStorage(storage.id());
     }
 
     public void release(Player player) {
-        UUID storageId = locks.storageFor(player.getUniqueId());
+        release(activeRound, player);
+        release(calibration, player);
+    }
+
+    private void release(RuntimeContext context, Player player) {
+        if (context == null) {
+            return;
+        }
+        UUID storageId = context.locks().storageFor(player.getUniqueId());
         if (storageId == null) {
             return;
         }
-        registry.all().stream()
-                .filter(storage -> storage.id().equals(storageId))
-                .findFirst()
+        context.storage(storageId)
                 .ifPresent(storage -> {
-                    inventoryFor(storage).ifPresent(inventory -> refill(storage, inventory));
-                    release(storage);
+                    inventoryFor(context, storage).ifPresent(inventory -> refill(storage, inventory));
+                    context.locks().releaseStorage(storage.id());
                 });
     }
 
     public void releaseForWorld(String worldName) {
-        if (worldName.equals(activeRuntimeWorld)) {
-            activeStorages().forEach(this::release);
-        }
+        contextForWorld(worldName).ifPresent(this::releaseAll);
     }
 
-    /** Rebuilds only the selected template's supplies in its disposable copy. */
+    /** Publishes a combat-only snapshot of the selected map's supplies. */
     public void activateMap(String mapId, String runtimeWorldName, MapBounds bounds) {
-        shutdown();
-        this.activeMapId = Objects.requireNonNull(mapId, "mapId");
-        this.activeRuntimeWorld = Objects.requireNonNull(runtimeWorldName, "runtimeWorldName");
-        this.activeBounds = Objects.requireNonNull(bounds, "bounds");
-        rebuildActiveLabels();
+        closeContext(activeRound);
+        activeRound = new RuntimeContext(mapId, runtimeWorldName, bounds, registry.all());
+        labels.rebuild(activeRound.storages(), activeRound.runtimeWorld());
     }
 
-    /** Detaches from any map, so nothing resolves as a supply between rounds. */
+    /** Detaches the combat context without touching an open calibration session. */
     public void deactivateMap() {
-        shutdown();
-        labels.removeAll();
-        this.activeMapId = null;
-        this.activeRuntimeWorld = null;
-        this.activeBounds = null;
+        closeContext(activeRound);
+        activeRound = null;
+    }
+
+    /** Publishes a calibration-only snapshot alongside any active combat round. */
+    public void activateCalibrationMap(String mapId, String runtimeWorldName, MapBounds bounds) {
+        closeContext(calibration);
+        calibration = new RuntimeContext(mapId, runtimeWorldName, bounds, registry.all());
+        labels.rebuild(calibration.storages(), calibration.runtimeWorld());
+    }
+
+    /** Detaches calibration without changing combat supplies, locks, or labels. */
+    public void deactivateCalibrationMap() {
+        closeContext(calibration);
+        calibration = null;
     }
 
     /**
@@ -221,8 +258,11 @@ public final class PotionStorageService {
     }
 
     public void shutdown() {
-        activeStorages().forEach(storage -> inventoryFor(storage).ifPresent(inventory -> refill(storage, inventory)));
-        locks.clear();
+        closeContext(activeRound);
+        closeContext(calibration);
+        activeRound = null;
+        calibration = null;
+        labels.removeAll();
     }
 
     public Iterable<PotionStorage> storages() {
@@ -287,12 +327,26 @@ public final class PotionStorageService {
         this.battlefieldFighter = Objects.requireNonNull(check, "check");
     }
 
-    private void release(PotionStorage storage) {
-        locks.releaseStorage(storage.id());
+    private Optional<RuntimeContext> contextForWorld(String worldName) {
+        if (calibration != null && calibration.matchesWorld(worldName)) {
+            return Optional.of(calibration);
+        }
+        if (activeRound != null && activeRound.matchesWorld(worldName)) {
+            return Optional.of(activeRound);
+        }
+        return Optional.empty();
     }
 
-    private void closeActiveStorage(PotionStorage storage) {
-        UUID holderId = locks.holderFor(storage.id());
+    private Optional<RuntimeContext> contextForInventory(Inventory inventory) {
+        Location location = inventory.getLocation();
+        if (location == null || location.getWorld() == null) {
+            return Optional.empty();
+        }
+        return contextForWorld(location.getWorld().getName());
+    }
+
+    private void closeStorage(RuntimeContext context, PotionStorage storage) {
+        UUID holderId = context.locks().holderFor(storage.id());
         if (holderId == null) {
             return;
         }
@@ -300,8 +354,23 @@ public final class PotionStorageService {
         if (holder != null) {
             holder.closeInventory();
         }
-        inventoryFor(storage).ifPresent(inventory -> refill(storage, inventory));
-        release(storage);
+        inventoryFor(context, storage).ifPresent(inventory -> refill(storage, inventory));
+        context.locks().releaseStorage(storage.id());
+    }
+
+    private void closeContext(RuntimeContext context) {
+        if (context == null) {
+            return;
+        }
+        releaseAll(context);
+        labels.removeWorld(context.runtimeWorld());
+    }
+
+    private void releaseAll(RuntimeContext context) {
+        for (PotionStorage storage : context.storages()) {
+            inventoryFor(context, storage).ifPresent(inventory -> refill(storage, inventory));
+        }
+        context.locks().clear();
     }
 
     private static void refill(PotionStorage storage, Inventory inventory) {
@@ -316,11 +385,11 @@ public final class PotionStorageService {
         inventory.setContents(contents);
     }
 
-    private Optional<Inventory> inventoryFor(PotionStorage storage) {
-        if (!isActive(storage)) {
+    private Optional<Inventory> inventoryFor(RuntimeContext context, PotionStorage storage) {
+        if (context.find(storage.key()).isEmpty()) {
             return Optional.empty();
         }
-        org.bukkit.World world = org.bukkit.Bukkit.getWorld(activeRuntimeWorld);
+        org.bukkit.World world = org.bukkit.Bukkit.getWorld(context.runtimeWorld());
         if (world == null) {
             return Optional.empty();
         }
@@ -330,52 +399,100 @@ public final class PotionStorageService {
     }
 
     /**
-     * Resolves a physical chest to a supply identity, but only when it really is
-     * in the published active map and inside its bounds. Without both checks a
-     * chest at matching coordinates in the lobby — or in any other loaded world —
-     * would answer as a team supply.
+     * One world's immutable-at-publication view of durable supplies. Mutations
+     * made through that world update only this snapshot plus persistence; a
+     * concurrent context keeps the view it started with until its next bind.
      */
-    private Optional<PotionStorageKey> activeKeyFor(Block block) {
-        if (activeMapId == null || !block.getWorld().getName().equals(activeRuntimeWorld)) {
-            return Optional.empty();
+    static final class RuntimeContext {
+        private final String mapId;
+        private final String runtimeWorld;
+        private final MapBounds bounds;
+        private final Set<PotionStorageKey> keys = new HashSet<>();
+        private final Map<PotionStorageKey, PotionStorage> storages = new LinkedHashMap<>();
+        private final PotionStorageLocks locks = new PotionStorageLocks();
+
+        RuntimeContext(String mapId, String runtimeWorld, MapBounds bounds, Collection<PotionStorage> source) {
+            this.mapId = Objects.requireNonNull(mapId, "mapId");
+            this.runtimeWorld = Objects.requireNonNull(runtimeWorld, "runtimeWorld");
+            this.bounds = Objects.requireNonNull(bounds, "bounds");
+            Objects.requireNonNull(source, "source").stream()
+                    .filter(storage -> storage.key().mapId().equals(mapId))
+                    .forEach(this::add);
         }
-        return keyFor(block).map(key -> key.onMap(activeMapId)).filter(this::withinActiveBounds);
-    }
 
-    private Optional<PotionStorageKey> activeKeyFor(Inventory inventory) {
-        if (activeMapId == null) {
-            return Optional.empty();
+        static RuntimeContext forKeys(String mapId, String runtimeWorld, MapBounds bounds, Collection<PotionStorageKey> keys) {
+            RuntimeContext context = new RuntimeContext(mapId, runtimeWorld, bounds, List.of());
+            Objects.requireNonNull(keys, "keys").forEach(key -> {
+                if (!key.mapId().equals(mapId)) {
+                    throw new IllegalArgumentException("Snapshot key belongs to a different map");
+                }
+                context.keys.add(key);
+            });
+            return context;
         }
-        return keyFor(inventory)
-                .filter(key -> inventoryWorldMatches(inventory))
-                .map(key -> key.onMap(activeMapId))
-                .filter(this::withinActiveBounds);
-    }
 
-    private static boolean inventoryWorldMatches(Inventory inventory) {
-        Location location = inventory.getLocation();
-        return location != null && location.getWorld() != null;
-    }
-
-    private boolean withinActiveBounds(PotionStorageKey key) {
-        if (activeBounds == null) {
-            return false;
+        String runtimeWorld() {
+            return runtimeWorld;
         }
-        return woo.siegePlugin.map.MapValidator.contains(activeBounds, key.first().x(), key.first().z())
-                && woo.siegePlugin.map.MapValidator.contains(activeBounds, key.second().x(), key.second().z());
-    }
 
-    private boolean isActive(PotionStorage storage) {
-        return activeMapId != null && storage.key().mapId().equals(activeMapId);
-    }
+        boolean matchesWorld(String worldName) {
+            return runtimeWorld.equals(worldName);
+        }
 
-    private java.util.List<PotionStorage> activeStorages() {
-        return registry.all().stream().filter(this::isActive).toList();
-    }
+        Optional<PotionStorage> find(Optional<PotionStorageKey> physicalKey) {
+            return scopedKey(physicalKey)
+                    .filter(keys::contains)
+                    .map(storages::get)
+                    .filter(Objects::nonNull);
+        }
 
-    private void rebuildActiveLabels() {
-        if (activeRuntimeWorld != null) {
-            labels.rebuild(activeStorages(), activeRuntimeWorld);
+        Optional<PotionStorage> find(PotionStorageKey physicalKey) {
+            return find(Optional.of(physicalKey));
+        }
+
+        Optional<PotionStorageKey> scopedKey(Optional<PotionStorageKey> physicalKey) {
+            return physicalKey.map(key -> key.onMap(mapId)).filter(this::withinBounds);
+        }
+
+        boolean withinBounds(PotionStorageKey key) {
+            return woo.siegePlugin.map.MapValidator.contains(bounds, key.first().x(), key.first().z())
+                    && woo.siegePlugin.map.MapValidator.contains(bounds, key.second().x(), key.second().z());
+        }
+
+        boolean contains(PotionStorageKey physicalKey) {
+            return scopedKey(Optional.of(physicalKey)).filter(keys::contains).isPresent();
+        }
+
+        Collection<PotionStorage> storages() {
+            return List.copyOf(storages.values());
+        }
+
+        Optional<PotionStorage> storage(UUID storageId) {
+            return storages.values().stream().filter(storage -> storage.id().equals(storageId)).findFirst();
+        }
+
+        void add(PotionStorage storage) {
+            if (!storage.key().mapId().equals(mapId)) {
+                throw new IllegalArgumentException("Storage belongs to a different map");
+            }
+            addKey(storage.key());
+            storages.put(storage.key(), storage);
+        }
+
+        void addKey(PotionStorageKey key) {
+            if (!key.mapId().equals(mapId)) {
+                throw new IllegalArgumentException("Storage key belongs to a different map");
+            }
+            keys.add(key);
+        }
+
+        void remove(PotionStorageKey key) {
+            keys.remove(key);
+            storages.remove(key);
+        }
+
+        PotionStorageLocks locks() {
+            return locks;
         }
     }
 
