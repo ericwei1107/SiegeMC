@@ -7,6 +7,9 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Objects;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.util.UUID;
 
 /** Filesystem-only half of map rotation: copies templates and deletes only verified generated folders. */
 public final class CleanCopyDirectory {
@@ -37,10 +40,71 @@ public final class CleanCopyDirectory {
         }
 
         try {
-            Files.walkFileTree(template, new SimpleFileVisitor<>() {
+            copyWorldDirectory(template, destination);
+            return destination;
+        } catch (IOException | RuntimeException failure) {
+            deleteActiveCopy(activeRoot, destination);
+            throw failure;
+        }
+    }
+
+    /**
+     * Replaces one clean template with a saved calibration copy. The previous
+     * template is retained beside it, so promotion is recoverable.
+     */
+    public static Path promoteActiveCopy(
+            Path activeRoot,
+            Path activeCopy,
+            Path templateRoot,
+            String templateFolder
+    ) throws IOException {
+        Objects.requireNonNull(activeRoot, "activeRoot");
+        Objects.requireNonNull(activeCopy, "activeCopy");
+        Objects.requireNonNull(templateRoot, "templateRoot");
+        Objects.requireNonNull(templateFolder, "templateFolder");
+        Path normalizedActiveRoot = activeRoot.toAbsolutePath().normalize();
+        Path normalizedActive = activeCopy.toAbsolutePath().normalize();
+        if (!normalizedActive.getParent().equals(normalizedActiveRoot)
+                || !normalizedActive.getFileName().toString().startsWith(ACTIVE_PREFIX)) {
+            throw new IllegalArgumentException("Calibration source is not a generated active copy");
+        }
+        if (templateFolder.contains("/") || templateFolder.contains("\\") || templateFolder.contains("..")) {
+            throw new IllegalArgumentException("Template folder must be one safe path segment");
+        }
+        Path normalizedTemplateRoot = templateRoot.toAbsolutePath().normalize();
+        Files.createDirectories(normalizedTemplateRoot);
+        Path template = normalizedTemplateRoot.resolve(templateFolder).normalize();
+        if (!template.getParent().equals(normalizedTemplateRoot)) {
+            throw new IllegalArgumentException("Template escapes its template root");
+        }
+        Path staging = normalizedTemplateRoot.resolve("." + templateFolder + ".promoting-" + UUID.randomUUID());
+        Path backup = normalizedTemplateRoot.resolve(templateFolder + ".pre-calibration-" + System.currentTimeMillis());
+        try {
+            copyWorldDirectory(normalizedActive, staging);
+            if (!Files.isRegularFile(staging.resolve("level.dat"))) {
+                throw new IOException("Promoted calibration copy has no level.dat");
+            }
+            boolean backedUp = Files.exists(template);
+            if (backedUp) moveWithinTemplateRoot(template, backup);
+            try {
+                moveWithinTemplateRoot(staging, template);
+            } catch (IOException promotionFailure) {
+                if (backedUp && !Files.exists(template)) moveWithinTemplateRoot(backup, template);
+                throw promotionFailure;
+            }
+            deleteActiveCopy(normalizedActiveRoot, normalizedActive);
+            return backedUp ? backup : null;
+        } catch (IOException | RuntimeException failure) {
+            if (Files.exists(staging)) deleteTree(staging);
+            throw failure;
+        }
+    }
+
+    private static void copyWorldDirectory(Path source, Path destination) throws IOException {
+        Files.walkFileTree(source, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path directory, BasicFileAttributes attributes) throws IOException {
-                    Path relative = template.relativize(directory);
+                    Path relative = source.relativize(directory);
                     Files.createDirectories(destination.resolve(relative));
                     return FileVisitResult.CONTINUE;
                 }
@@ -49,15 +113,18 @@ public final class CleanCopyDirectory {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                     String name = file.getFileName().toString();
                     if (!name.equals("session.lock") && !name.equals("uid.dat")) {
-                        Files.copy(file, destination.resolve(template.relativize(file)));
+                        Files.copy(file, destination.resolve(source.relativize(file)));
                     }
                     return FileVisitResult.CONTINUE;
                 }
             });
-            return destination;
-        } catch (IOException | RuntimeException failure) {
-            deleteActiveCopy(activeRoot, destination);
-            throw failure;
+    }
+
+    private static void moveWithinTemplateRoot(Path source, Path destination) throws IOException {
+        try {
+            Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(source, destination);
         }
     }
 
@@ -73,7 +140,11 @@ public final class CleanCopyDirectory {
         if (!Files.exists(normalizedCopy)) {
             return;
         }
-        Files.walkFileTree(normalizedCopy, new SimpleFileVisitor<>() {
+        deleteTree(normalizedCopy);
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        Files.walkFileTree(root, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attributes) throws IOException {
                 Files.delete(file);

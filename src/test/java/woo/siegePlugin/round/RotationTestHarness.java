@@ -268,7 +268,11 @@ final class RotationTestHarness implements AutoCloseable {
 
         private final Deque<Runnable> queue = new ArrayDeque<>();
         private Runnable tick;
-        private Instant now = Instant.parse("2026-08-29T12:00:00Z");
+        // Real wall-clock time, not a fixed literal: WorldCleanupDao stamps
+        // next_retry_at with actual System.currentTimeMillis(), so a frozen
+        // "now" here would eventually drift behind it and make due() queries
+        // fail once real time passes whatever date was hardcoded.
+        private Instant now = Instant.now();
 
         @Override
         public synchronized void onServerThread(Runnable action) {

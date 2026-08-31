@@ -47,9 +47,7 @@ public final class KitChoiceCatalog {
             }
 
             KitItemSpec defaultItem = slot < 0 ? null : snapshot.slots().get(slot);
-            if (slot >= 0 && defaultItem == null) {
-                groupProblems.add(path + " targets an empty default-kit slot");
-            } else if (defaultItem != null && defaultItem.material().endsWith("_SWORD")) {
+            if (defaultItem != null && defaultItem.material().endsWith("_SWORD")) {
                 groupProblems.add(path + " cannot make the primary sword editable");
             }
 
@@ -77,7 +75,7 @@ public final class KitChoiceCatalog {
             try {
                 for (Choice choice : group.choices()) {
                     KitItemSpec item = choice.resolve(snapshot, group.slot());
-                    if (item == null || KitItems.create(item) == null) {
+                    if (!choice.useDefault() && (item == null || KitItems.create(item) == null)) {
                         throw new IllegalArgumentException("choice '" + choice.key() + "' has an unknown material");
                     }
                 }
@@ -106,9 +104,7 @@ public final class KitChoiceCatalog {
         List<String> problems = new ArrayList<>();
         for (ChoiceGroup group : groups.values()) {
             KitItemSpec item = snapshot.slots().get(group.slot());
-            if (item == null) {
-                problems.add(ROOT + "." + group.slot() + " now targets an empty default-kit slot");
-            } else if (item.material().endsWith("_SWORD")) {
+            if (item != null && item.material().endsWith("_SWORD")) {
                 problems.add(ROOT + "." + group.slot() + " now targets a sword and has been disabled");
             }
         }
@@ -119,7 +115,7 @@ public final class KitChoiceCatalog {
         return groups.values().stream()
                 .filter(group -> {
                     KitItemSpec item = snapshot.slots().get(group.slot());
-                    return item != null && !item.material().endsWith("_SWORD");
+                    return item == null || !item.material().endsWith("_SWORD");
                 })
                 .toList();
     }
@@ -127,7 +123,7 @@ public final class KitChoiceCatalog {
     public Optional<ChoiceGroup> compatibleGroupAt(int slot, KitSnapshot snapshot) {
         return groupAt(slot).filter(group -> {
             KitItemSpec item = snapshot.slots().get(group.slot());
-            return item != null && !item.material().endsWith("_SWORD");
+            return item == null || !item.material().endsWith("_SWORD");
         });
     }
 

@@ -114,3 +114,6 @@ run/
 
 # Local planning notes
 Stage_4.4_Implementation_Plan.md
+
+# Local deploy pipeline — machine/VPS-specific, never commit
+scripts/deploy.local.conf

@@ -1,7 +1,8 @@
 # SiegeMC default configuration
 
-# This packaged file supplies defaults for new installations. Keep the live
-# plugins/SiegePlugin/config.yml synchronized without overwriting owner values.
+# This is the deploy-managed base configuration. In-game default-kit captures
+# are stored separately in plugins/SiegePlugin/runtime-overrides.yml and win
+# over the matching base-kit values without being replaced by deployment.
 
 teams:
   red:
@@ -108,25 +109,794 @@ kit:
   # Opening and browsing /siege kit is always free. Set to 0 to disable.
   command-cooldown-seconds: 300
 
-  # Personal replacements are opt-in so adding this feature cannot change kit
-  # balance on an existing server. Each configured slot must contain the
-  # inherited default plus at least one explicit replacement. Only storage
-  # slots 0-35 are eligible; sword, armor, and offhand slots are never editable.
-  #
-  # Example (disabled until copied under slots):
-  # slots:
-  #   2:
-  #     display-name: "Utility Slot"
-  #     icon: EXPERIENCE_BOTTLE
-  #     choices:
-  #       default:
-  #         use-default: true
-  #       alternate_food:
-  #         display-name: "Alternate Food"
-  #         material: COOKED_BEEF
-  #         amount: 16
+  # Each configured slot offers its inherited default (or empty state) plus
+  # a curated replacement list. Only storage slots 0-35 are eligible; sword,
+  # armor, and offhand slots are never editable.
   editor:
-    slots: {}
+    slots:
+      9:
+        display-name: "Supply Slot 9"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      10:
+        display-name: "Supply Slot 10"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      11:
+        display-name: "Supply Slot 11"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      12:
+        display-name: "Supply Slot 12"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      13:
+        display-name: "Supply Slot 13"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      14:
+        display-name: "Supply Slot 14"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      15:
+        display-name: "Supply Slot 15"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      16:
+        display-name: "Supply Slot 16"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      17:
+        display-name: "Supply Slot 17"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      18:
+        display-name: "Supply Slot 18"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      19:
+        display-name: "Supply Slot 19"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      20:
+        display-name: "Supply Slot 20"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      21:
+        display-name: "Supply Slot 21"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      22:
+        display-name: "Supply Slot 22"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      23:
+        display-name: "Supply Slot 23"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      24:
+        display-name: "Supply Slot 24"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      25:
+        display-name: "Supply Slot 25"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      26:
+        display-name: "Supply Slot 26"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      27:
+        display-name: "Supply Slot 27"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      28:
+        display-name: "Supply Slot 28"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      29:
+        display-name: "Supply Slot 29"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      30:
+        display-name: "Supply Slot 30"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      31:
+        display-name: "Supply Slot 31"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      32:
+        display-name: "Supply Slot 32"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      33:
+        display-name: "Supply Slot 33"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      34:
+        display-name: "Supply Slot 34"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
+      35:
+        display-name: "Supply Slot 35"
+        icon: SPLASH_POTION
+        choices:
+          default:
+            use-default: true
+          instant_health_ii:
+            display-name: "Splash Instant Health II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_HEALING
+          speed_ii:
+            display-name: "Splash Speed II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_SWIFTNESS
+          strength_ii:
+            display-name: "Splash Strength II"
+            material: SPLASH_POTION
+            amount: 1
+            potion-type: STRONG_STRENGTH
+          cobblestone:
+            display-name: "64 Cobblestone"
+            material: COBBLESTONE
+            amount: 64
+          diamond_pickaxe:
+            display-name: "Diamond Pickaxe"
+            material: DIAMOND_PICKAXE
+            amount: 1
 
   # This exact snapshot replaces a player's whole inventory when /siege kit
   # runs and whenever the normal siege lifecycle reapplies their kit.

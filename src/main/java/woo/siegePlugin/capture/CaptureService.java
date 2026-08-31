@@ -5,7 +5,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
-import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
@@ -191,22 +190,14 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         banner.ensurePresent();
     }
 
-    /**
-     * Moves the capture point and persists it. Progress and control are tied to
-     * the old location, so both are discarded.
-     */
+    /** Moves the capture point for the active map. Progress and control are tied to
+     * the old location, so both are discarded. The admin command persists the
+     * map-specific location in runtime-map-overrides.yml. */
     public void relocateBanner(Location destination) {
         resetControl();
         banner.moveTo(destination);
         banner.ensurePresent();
 
-        Location moved = banner.location();
-        FileConfiguration config = plugin.getConfig();
-        config.set(CaptureSettings.WORLD_PATH, moved.getWorld().getName());
-        config.set("capture-point.x", moved.getBlockX());
-        config.set("capture-point.y", moved.getBlockY());
-        config.set("capture-point.z", moved.getBlockZ());
-        plugin.saveConfig();
     }
 
     private void tick() {
@@ -264,10 +255,12 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
                 continue;
             }
 
-            // The boss bar appearing is the start notification; a chat message
-            // here would repeat every tick for anyone straddling the boundary.
             CaptureSession session = CaptureSession.starting(playerId, team, now, settings.sessionDuration());
             sessions.put(playerId, session);
+            player.sendMessage(Component.text(
+                    "You are in the process of capturing the banner.",
+                    NamedTextColor.GREEN
+            ));
             showProgress(player, session, now);
         }
     }

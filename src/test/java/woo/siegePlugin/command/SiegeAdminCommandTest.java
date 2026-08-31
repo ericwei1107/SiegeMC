@@ -23,7 +23,7 @@ class SiegeAdminCommandTest {
         List<String> completions = command.tabComplete(sender, new String[]{"admin", "reset"});
         assertEquals(List.of(), completions);
         assertTrue(command.handle(sender, "siege", new String[]{"admin", "resetscores", "confirm"}));
-        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation>"), messages);
+        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation|map>"), messages);
     }
 
     @Test
@@ -64,7 +64,7 @@ class SiegeAdminCommandTest {
     }
 
     private static SiegeAdminCommand command() {
-        return new SiegeAdminCommand(null, null, null, null, Logger.getAnonymousLogger(), null, null);
+        return new SiegeAdminCommand(null, null, null, null, Logger.getAnonymousLogger(), null, null, null, null);
     }
 
     private static CommandSender sender(boolean admin, boolean resetScores, List<String> messages) {

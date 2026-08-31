@@ -178,7 +178,7 @@ class RotationRestartTest {
             await(new RotationStateDao(database).save(new RotationState(
                     RoundPhase.INTERMISSION, 9L, 0L, null, null, null, "murmansk",
                     "kazan", "siege-active-9-kazan",
-                    java.time.Instant.parse("2026-08-29T12:00:20Z"), List.of()
+                    java.time.Instant.now().plusSeconds(20), List.of()
             )));
         }
 
@@ -226,7 +226,7 @@ class RotationRestartTest {
             RotationStateDao dao = new RotationStateDao(database);
             await(dao.save(new RotationState(
                     RoundPhase.INTERMISSION, 11L, 0L, null, null, null, "murmansk", null, null,
-                    java.time.Instant.parse("2026-08-29T12:00:20Z"), List.of()
+                    java.time.Instant.now().plusSeconds(20), List.of()
             )));
             await(dao.queue(queued, RoundRole.PLAYER, QueueSource.OPT_IN));
         }

@@ -76,7 +76,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
 ## Continuous capture, shop, kits, and minecarts
 
 - [ ] Capture has no Active/Break timer. It continues until the winning score closes the round.
-- [ ] `/siege admin setbanner` refuses unless you are standing inside the active map and its bounds, moves the live banner, and writes the new coordinates into that map's `maps.yml` entry so they survive rotation.
+- [ ] `/siege admin setbanner` refuses unless you are standing inside the active map and its bounds, moves the live banner, and writes the new coordinates into `runtime-map-overrides.yml` for that map so they survive rotation without a future deployment overwriting them.
 - [ ] The sidebar has a bold gold title, gold labels, and nine lines: the active map's display name, ATK/DEF, both scores, the score target, banner control, and per-round Banner Points—no cycle timer. Map and Target change the moment a new round is published.
 - [ ] Shop purchases and battle interactions are rejected outside ACTIVE. An in-flight purchase crossing the round boundary refunds instead of delivering into the lobby.
 - [ ] Kit editing remains global across maps. Save & Equip equips immediately, and every new round starts from the validated personal/default kit.
