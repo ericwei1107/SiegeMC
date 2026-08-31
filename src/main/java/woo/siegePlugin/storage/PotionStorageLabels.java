@@ -118,9 +118,10 @@ final class PotionStorageLabels {
     private record LabelKey(UUID storageId, String runtimeWorld) {
     }
 
-    private static Component markerText(ItemStack supply) {
-        if (supply.getType() == org.bukkit.Material.BAKED_POTATO) {
-            return Component.text("Food", NamedTextColor.GOLD);
+    static Component markerText(ItemStack supply) {
+        Component specialMarker = specialMarkerText(supply.getType());
+        if (specialMarker != null) {
+            return specialMarker;
         }
         NamedTextColor color = NamedTextColor.WHITE;
         if (supply.getItemMeta() instanceof PotionMeta meta && meta.hasBasePotionType()) {
@@ -130,5 +131,13 @@ final class PotionStorageLabels {
             else if (type.contains("STRENGTH")) color = NamedTextColor.YELLOW;
         }
         return Component.text("■", color);
+    }
+
+    static Component specialMarkerText(org.bukkit.Material material) {
+        return switch (material) {
+            case BAKED_POTATO -> Component.text("Food", NamedTextColor.GOLD);
+            case EXPERIENCE_BOTTLE -> Component.text("XP", NamedTextColor.GREEN);
+            default -> null;
+        };
     }
 }

@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CanonicalConfigTest {
@@ -66,7 +67,7 @@ class CanonicalConfigTest {
         assertEquals(60L, currency.priceOf(ShopBundle.TNT_MINECART));
         assertEquals(30L, currency.priceOf(ShopBundle.ENDER_PEARLS));
         assertEquals(12L, currency.priceOf(ShopBundle.STEAK));
-        assertEquals(300L, currency.priceOf(ShopBundle.EXPERIENCE_BOTTLES));
+        assertFalse(config.isSet("shop.prices.experience-bottles"));
         assertEquals(24L, currency.priceOf(ShopBundle.GOLDEN_CARROTS));
         assertEquals(200L, currency.priceOf(ShopBundle.KNOCKBACK_SWORD));
         assertEquals(80L, currency.priceOf(ShopBundle.DIAMOND_PICKAXE_I));

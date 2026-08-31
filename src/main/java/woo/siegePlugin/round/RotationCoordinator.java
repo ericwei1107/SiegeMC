@@ -1163,6 +1163,57 @@ public final class RotationCoordinator {
         return true;
     }
 
+    /**
+     * Admin override for a round stuck in ACTIVE with no way to end naturally.
+     * Aborts the open match, transfers its roster into the intermission queue,
+     * and lands in INTERMISSION with an empty candidate list — nothing is
+     * prepared automatically. An admin must follow up with {@link #retry}
+     * (rotation force/retry) to pick the next map.
+     */
+    public boolean endActive() {
+        if (rounds.phase() != RoundPhase.ACTIVE) {
+            return false;
+        }
+        RotationState state = durableState;
+        if (state == null || state.currentMatchId() == null) {
+            return false;
+        }
+        invalidateAttempts();
+        scoreDao.abort(state.currentMatchId()).whenComplete((aborted, abortFailure) -> onServerThread(() -> {
+            if (abortFailure != null) {
+                enterRecovery("Could not abort the admin-ended match", abortFailure);
+                return;
+            }
+            stateDao.transferRosterToQueue(state.currentMatchId()).whenComplete((transferred, transferFailure) ->
+                    onServerThread(() -> {
+                        if (transferFailure != null) {
+                            enterRecovery("Could not transfer the admin-ended match's roster", transferFailure);
+                            return;
+                        }
+                        transferred.forEach(value -> {
+                            queue.putIfAbsent(value.playerId(), value);
+                            audience.discardStoredRoundInventory(value.playerId());
+                        });
+                        clearRoundBindings();
+                        rounds.restore(RoundPhase.INTERMISSION, null);
+                        evacuateEveryone();
+                        scheduler.stopTicking();
+                        preparationDeadline = null;
+                        RotationState next = new RotationState(
+                                RoundPhase.INTERMISSION, state.generation(), state.revision(),
+                                null, null, null, state.currentMapId(), null, null,
+                                null, List.of()
+                        );
+                        writeState(next, saved -> audience.broadcast(Component.text(
+                                "The siege was ended by an admin. Rotation is paused in intermission — "
+                                        + "an admin must run rotation force <map> to pick the next map.",
+                                NamedTextColor.RED
+                        )));
+                    }));
+        }));
+        return true;
+    }
+
     // ----------------------------------------------------------------- joins
 
     /** Phase-explicit {@code /siege join}. Returns the outcome to report. */

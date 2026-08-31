@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShopBundleTest {
@@ -48,11 +49,11 @@ class ShopBundleTest {
 
     @Test
     void theApprovedBundleListIsPresent() {
-        assertEquals(19, ShopBundle.values().length);
+        assertEquals(18, ShopBundle.values().length);
         for (String key : java.util.List.of(
                 "building-blocks", "golden-apples", "cobwebs", "rails",
                 "enchanted-bow", "arrows", "trident", "tnt-minecart",
-                "ender-pearls", "steak", "experience-bottles", "golden-carrots", "knockback-sword",
+                "ender-pearls", "steak", "golden-carrots", "knockback-sword",
                 "diamond-pickaxe-i", "diamond-pickaxe-ii", "diamond-pickaxe-iii",
                 "diamond-pickaxe-iv", "diamond-pickaxe-v", "netherite-pickaxe-v"
         )) {
@@ -61,6 +62,10 @@ class ShopBundleTest {
                     "missing bundle: " + key
             );
         }
+        assertFalse(
+                Arrays.stream(ShopBundle.values())
+                        .anyMatch(bundle -> bundle.configKey().equals("experience-bottles"))
+        );
     }
 
     @Test
@@ -75,7 +80,6 @@ class ShopBundleTest {
         assertEquals(60L, ShopBundle.TNT_MINECART.defaultPrice());
         assertEquals(30L, ShopBundle.ENDER_PEARLS.defaultPrice());
         assertEquals(12L, ShopBundle.STEAK.defaultPrice());
-        assertEquals(300L, ShopBundle.EXPERIENCE_BOTTLES.defaultPrice());
         assertEquals(24L, ShopBundle.GOLDEN_CARROTS.defaultPrice());
         assertEquals(200L, ShopBundle.KNOCKBACK_SWORD.defaultPrice());
         assertEquals(80L, ShopBundle.DIAMOND_PICKAXE_I.defaultPrice());

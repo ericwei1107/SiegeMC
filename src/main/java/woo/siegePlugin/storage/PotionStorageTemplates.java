@@ -1,6 +1,7 @@
 package woo.siegePlugin.storage;
 
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.Material;
 import org.bukkit.inventory.meta.PotionMeta;
 
 /** Validation and refill-item helpers shared by command and listener code. */
@@ -19,9 +20,16 @@ public final class PotionStorageTemplates {
         };
     }
 
-    /** Supplies intentionally stay narrow: combat potions plus the standard food ration. */
+    /** Supplies intentionally stay narrow: combat potions, the standard food ration, and XP bottles. */
     public static boolean isSupportedSupply(ItemStack item) {
-        return isPotion(item) || (item != null && item.getType() == org.bukkit.Material.BAKED_POTATO);
+        return item != null && isSupportedMaterial(item.getType());
+    }
+
+    static boolean isSupportedMaterial(Material material) {
+        return switch (material) {
+            case POTION, SPLASH_POTION, LINGERING_POTION, BAKED_POTATO, EXPERIENCE_BOTTLE -> true;
+            default -> false;
+        };
     }
 
     public static ItemStack uniformPotionTemplate(ItemStack[] contents) {
@@ -31,7 +39,9 @@ public final class PotionStorageTemplates {
                 continue;
             }
             if (!isSupportedSupply(item)) {
-                throw new IllegalArgumentException("the chest may contain only one kind of potion or baked potatoes");
+                throw new IllegalArgumentException(
+                        "the chest may contain only one kind of potion, baked potato, or experience bottle"
+                );
             }
             if (template == null) {
                 template = item.clone();
@@ -41,7 +51,9 @@ public final class PotionStorageTemplates {
             }
         }
         if (template == null) {
-            throw new IllegalArgumentException("put a sample potion or baked potato in the double chest first");
+            throw new IllegalArgumentException(
+                    "put a sample potion, baked potato, or experience bottle in the double chest first"
+            );
         }
         return template;
     }

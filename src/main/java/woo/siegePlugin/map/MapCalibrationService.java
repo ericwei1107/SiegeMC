@@ -85,8 +85,6 @@ public final class MapCalibrationService {
             java.util.List<String> problems = new java.util.ArrayList<>(MapValidator.staticProblems(map, true));
             ActiveMapWorld calibrated = new ActiveMapWorld(map, world.world(), world.folder());
             problems.addAll(MapValidator.loadedCopyProblems(calibrated));
-            problems.addAll(storages.findMapProblems(map.id(), bounds));
-            problems.addAll(storages.verifySupplyChests(calibrated, map.id()));
             if (!problems.isEmpty()) return "Not enabled: " + String.join("; ", problems);
             detachForPromotion(player);
             loader.promote(calibrated).whenComplete((backup, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {

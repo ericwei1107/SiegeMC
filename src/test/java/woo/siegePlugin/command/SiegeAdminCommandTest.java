@@ -49,17 +49,17 @@ class SiegeAdminCommandTest {
     }
 
     @Test
-    void supplyCommandsOfferRegistrationAndTeamCompletions() {
+    void supplyCommandsOfferClaimAndTeamCompletions() {
         SiegeAdminCommand command = command();
         CommandSender sender = sender(true, true, new ArrayList<>());
 
         assertEquals(
-                List.of("register"),
-                command.tabComplete(sender, new String[]{"admin", "supply", "reg"})
+                List.of("claim"),
+                command.tabComplete(sender, new String[]{"admin", "supply", "cl"})
         );
         assertEquals(
                 List.of("blue"),
-                command.tabComplete(sender, new String[]{"admin", "supply", "register", "b"})
+                command.tabComplete(sender, new String[]{"admin", "supply", "claim", "b"})
         );
     }
 

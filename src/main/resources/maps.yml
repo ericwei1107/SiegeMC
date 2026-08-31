@@ -41,9 +41,10 @@
 # Y value must be a legal world height. Run `/siege admin rotation validate all`
 # after editing this file — it reloads maps.yml and reports each problem.
 #
-# Registered potion supplies are stored separately in potion-storages.yml and
-# are keyed by map id, so re-register them once per map with
-# `/siege admin supply register <red|blue>` while standing in that map.
+# Potion supplies are claimed into a calibration copy with
+# `/siege admin supply claim <red|blue>` while looking at a double chest. The
+# claim is saved inside the promoted map template, so moving or deleting a
+# chest later never leaves an external coordinate record that can block rotation.
 #
 # In-game setup: `/siege admin map calibrate <map-id>` creates a disposable
 # clean copy. Set both spawns, two bounds corners, and the banner, then use

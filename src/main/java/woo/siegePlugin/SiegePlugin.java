@@ -410,9 +410,11 @@ public final class SiegePlugin extends JavaPlugin {
                 sender.sendMessage("/siege admin map corner <1|2> — save an arena-bounds corner at your position.");
                 sender.sendMessage("/siege admin map setbanner [radius] — save the banner position and capture radius.");
                 sender.sendMessage("/siege admin map return — teleport back to your active calibration copy.");
-                sender.sendMessage("/siege admin map finish | abort — validate and enable this map, or discard setup from anywhere.");
-                sender.sendMessage("/siege admin supply register|unregister|list|info — manage map potion depots.");
-                sender.sendMessage("/siege admin rotation status|validate|retry|force — inspect, validate, recover, or request a map.");
+                sender.sendMessage("/siege admin map finish | abort — save this calibration template, or discard setup from anywhere.");
+                sender.sendMessage("/siege admin supply claim <red|blue> — tag the targeted calibration double chest as a team refill supply.");
+                sender.sendMessage("/siege admin supply unclaim — remove the targeted calibration chest's supply tag.");
+                sender.sendMessage("/siege admin supply list | info — inspect supplies discovered in this map copy.");
+                sender.sendMessage("/siege admin rotation status|validate|retry|force|end — inspect, validate, select, or end a round.");
                 sender.sendMessage("/siege admin savekit confirm — make your inventory the global default kit.");
                 sender.sendMessage("/siege admin setbanner — move the banner in an active real siege.");
             } else {

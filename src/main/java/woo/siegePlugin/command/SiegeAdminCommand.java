@@ -104,15 +104,15 @@ public final class SiegeAdminCommand {
         }
         if (args.length == 3 && args[1].equalsIgnoreCase("rotation")) {
             String prefix = args[2].toLowerCase(Locale.ROOT);
-            return List.of("status", "validate", "retry", "force").stream().filter(value -> value.startsWith(prefix)).toList();
+            return List.of("status", "validate", "retry", "force", "end").stream().filter(value -> value.startsWith(prefix)).toList();
         }
         if (args.length == 3 && args[1].equalsIgnoreCase("supply")) {
             String prefix = args[2].toLowerCase(Locale.ROOT);
-            return List.of("register", "unregister", "list", "info").stream()
+            return List.of("claim", "unclaim", "register", "unregister", "list", "info").stream()
                     .filter(value -> value.startsWith(prefix)).toList();
         }
         if (args.length == 4 && args[1].equalsIgnoreCase("supply")
-                && args[2].equalsIgnoreCase("register")) {
+                && (args[2].equalsIgnoreCase("claim") || args[2].equalsIgnoreCase("register"))) {
             String prefix = args[3].toLowerCase(Locale.ROOT);
             return List.of("red", "blue").stream().filter(value -> value.startsWith(prefix)).toList();
         }
@@ -143,7 +143,7 @@ public final class SiegeAdminCommand {
 
     private boolean rotation(CommandSender sender, String label, String[] args) {
         if (rotation == null || args.length < 3) {
-            sender.sendMessage("Usage: /" + label + " admin rotation <status|validate [map|all]|retry [map]>");
+            sender.sendMessage("Usage: /" + label + " admin rotation <status|validate [map|all]|retry [map]|end>");
             return true;
         }
         switch (args[2].toLowerCase(Locale.ROOT)) {
@@ -161,8 +161,12 @@ public final class SiegeAdminCommand {
                         ? "Requested map preparation started."
                         : "Rotation is not recoverable now, or that enabled map is unknown.");
             }
+            case "end" -> sender.sendMessage(rotation.endActive()
+                    ? "Ending the active siege. Rotation will land in intermission — "
+                            + "run rotation force <map> to pick the next map."
+                    : "No active round to end.");
             default -> sender.sendMessage("Usage: /" + label
-                    + " admin rotation <status|validate [map|all]|retry [map]>");
+                    + " admin rotation <status|validate [map|all]|retry [map]|end>");
         }
         return true;
     }
@@ -239,8 +243,8 @@ public final class SiegeAdminCommand {
             return true;
         }
         return switch (args[2].toLowerCase(Locale.ROOT)) {
-            case "register" -> supplyRegister(sender, label, args);
-            case "unregister" -> supplyUnregister(sender, label, args);
+            case "claim", "register" -> supplyRegister(sender, label, args);
+            case "unclaim", "unregister" -> supplyUnregister(sender, label, args);
             case "list" -> supplyList(sender, label, args);
             case "info" -> supplyInfo(sender, label, args);
             default -> {
@@ -252,7 +256,7 @@ public final class SiegeAdminCommand {
 
     private boolean supplyRegister(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player player) || args.length != 4) {
-            sender.sendMessage("Usage: /" + label + " admin supply register <red|blue>");
+            sender.sendMessage("Usage: /" + label + " admin supply claim <red|blue>");
             return true;
         }
         Team team = Team.fromInput(args[3]).orElse(null);
@@ -266,7 +270,7 @@ public final class SiegeAdminCommand {
 
     private boolean supplyUnregister(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player player) || args.length != 3) {
-            sender.sendMessage("Usage: /" + label + " admin supply unregister");
+            sender.sendMessage("Usage: /" + label + " admin supply unclaim");
             return true;
         }
         sender.sendMessage(storages.unregister(player).message());
@@ -305,7 +309,7 @@ public final class SiegeAdminCommand {
     }
 
     private static void supplyUsage(CommandSender sender, String label) {
-        sender.sendMessage("Usage: /" + label + " admin supply <register <red|blue>|unregister|list|info>");
+        sender.sendMessage("Usage: /" + label + " admin supply <claim <red|blue>|unclaim|list|info>");
     }
 
     private static void usage(CommandSender sender, String label) {

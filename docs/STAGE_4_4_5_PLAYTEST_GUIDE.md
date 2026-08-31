@@ -16,7 +16,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
 
 4. Every enabled map must report `valid`. `validate` re-reads `maps.yml` from disk, so an edit needs no restart, and it fails loudly on malformed YAML instead of quietly reporting an empty pool. Validation runs in two stages and a map must clear both before it can host a round:
    - **Static** (manifest and template folder): real-path template containment, `level.dat`, map id restricted to `[A-Za-z0-9_-]`, every `bounds` edge present, finite coordinates, both spawns and the entire capture radius inside `bounds`, distinct team spawns, and registered supplies inside `bounds`.
-   - **Loaded copy** (a throwaway copy is made, checked, then always unloaded): solid non-hazardous spawn footing, passable feet and head space, a supported capture position, heights inside that world's own build range, and both halves of every configured supply chest.
+   - **Loaded copy** (a throwaway copy is made, checked, then always unloaded): solid non-hazardous spawn footing, passable feet and head space, a supported capture position, and heights inside that world's own build range. Tagged supply chests are discovered from the template and do not veto rotation.
 
    Because it copies each template, `validate all` takes a moment and reports asynchronously. A map that does not validate is skipped when rotation picks candidates, so fix every problem before relying on it as a fallback.
 5. Confirm the plugin depends only on Towny and CombatLog; Multiverse is not a lifecycle owner.
@@ -66,7 +66,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
 
 ## Potion supplies
 
-- [ ] On each active map, register a physical double chest using `/siege admin supply register <red|blue>` and verify `/siege admin supply list` identifies the map, not the generated runtime-world name.
+- [ ] During each map's calibration, claim a physical double chest using `/siege admin supply claim <red|blue>`, finish calibration, and verify `/siege admin supply list` shows it when that map is active.
 - [ ] Only the owning team (or admin) can open it. One player at a time can access it; the second receives the red in-use message.
 - [ ] Withdraw potions, close, reopen, disconnect, die, and rotate maps. Contents refill, locks clear, and only the active map's labels/storage definitions resolve. Registration is refused outside the active map and outside its `bounds`.
 - [ ] Place a double chest in the lobby at the exact coordinates of a registered supply. It must behave as an ordinary chest, never as a team supply.

@@ -23,7 +23,6 @@ public enum ShopBundle {
     TNT_MINECART("tnt-minecart", "TNT Minecart", 60L, 22, () -> new ItemStack(Material.TNT_MINECART, 1)),
     ENDER_PEARLS("ender-pearls", "16 Ender Pearls", 30L, 0, () -> new ItemStack(Material.ENDER_PEARL, 16)),
     STEAK("steak", "64 Steak", 12L, 1, () -> new ItemStack(Material.COOKED_BEEF, 64)),
-    EXPERIENCE_BOTTLES("experience-bottles", "64 Bottles o' Enchanting", 300L, 2, () -> new ItemStack(Material.EXPERIENCE_BOTTLE, 64)),
     GOLDEN_CARROTS("golden-carrots", "64 Golden Carrots", 24L, 3, () -> new ItemStack(Material.GOLDEN_CARROT, 64)),
     KNOCKBACK_SWORD("knockback-sword", "Knockback II Diamond Sword", 200L, 4, ShopBundle::knockbackSword),
     DIAMOND_PICKAXE_I("diamond-pickaxe-i", "Diamond Pickaxe I", 80L, 5, () -> pickaxe(Material.DIAMOND_PICKAXE, 1, 1)),
