@@ -39,6 +39,7 @@ import woo.siegePlugin.kit.KitCommandCooldown;
 import woo.siegePlugin.kit.KitCommandSettings;
 import woo.siegePlugin.kit.KitService;
 import woo.siegePlugin.kit.KitSnapshot;
+import woo.siegePlugin.kit.RuntimeKitOverrides;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
@@ -77,11 +78,15 @@ import woo.siegePlugin.round.RotationSettings;
 import woo.siegePlugin.round.RoundRoster;
 import woo.siegePlugin.map.MapManifest;
 import woo.siegePlugin.map.NativeMapWorldLoader;
+import woo.siegePlugin.map.RuntimeMapOverrides;
+import woo.siegePlugin.map.MapCalibrationService;
+import woo.siegePlugin.state.LobbySettings;
 import woo.siegePlugin.map.SiegeMap;
 import woo.siegePlugin.stats.CombatStatsListener;
 import woo.siegePlugin.stats.MatchStatsService;
 import woo.siegePlugin.stats.MatchStatsTracker;
 import java.io.File;
+import java.io.IOException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -120,6 +125,9 @@ public final class SiegePlugin extends JavaPlugin {
     private MatchStatsService matchStatsService;
     private TeamSpawnLocations teamSpawnLocations;
     private MapManifest mapManifest;
+    private RuntimeKitOverrides runtimeKitOverrides;
+    private RuntimeMapOverrides runtimeMapOverrides;
+    private MapCalibrationService mapCalibrationService;
 
     @Override
     public void onEnable() {
@@ -129,7 +137,14 @@ public final class SiegePlugin extends JavaPlugin {
         saveDefaultConfig();
         saveResource("maps.yml", false);
 
+        runtimeKitOverrides = new RuntimeKitOverrides(getDataFolder());
+        runtimeMapOverrides = new RuntimeMapOverrides(getDataFolder());
         List<String> problems = new ArrayList<>();
+        try {
+            runtimeKitOverrides.applyTo(getConfig());
+        } catch (IOException exception) {
+            problems.add(exception.getMessage());
+        }
         problems.addAll(TownyAdapter.provisionSpectatorTown(getConfig()));
         problems.addAll(validateStartup());
 
@@ -314,9 +329,9 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(SidebarSettings.findConfigurationProblems(config));
 
         File mapsFile = new File(getDataFolder(), "maps.yml");
-        problems.addAll(MapManifest.findConfigurationProblems(mapsFile));
+        problems.addAll(runtimeMapOverrides.findConfigurationProblems(mapsFile));
         try {
-            this.mapManifest = MapManifest.load(mapsFile);
+            this.mapManifest = runtimeMapOverrides.loadManifest(mapsFile);
         } catch (IllegalArgumentException exception) {
             problems.add("maps.yml could not be loaded: " + exception.getMessage());
         }
@@ -336,6 +351,9 @@ public final class SiegePlugin extends JavaPlugin {
                 getCommand("siege"),
                 "The siege command is missing from plugin.yml"
         );
+        NativeMapWorldLoader calibrationLoader = new NativeMapWorldLoader(this);
+        mapCalibrationService = new MapCalibrationService(this, calibrationLoader, runtimeMapOverrides,
+                new File(getDataFolder(), "maps.yml"), LobbySettings.fromConfig(getConfig(), getServer()), potionStorageService);
         SiegeCommand commandHandler = new SiegeCommand(
                 townyAdapter,
                 teamSwitchService,
@@ -348,7 +366,10 @@ public final class SiegePlugin extends JavaPlugin {
                         kitService,
                         getLogger(),
                         potionStorageService,
-                        rotationCoordinator
+                        rotationCoordinator,
+                        runtimeKitOverrides,
+                        runtimeMapOverrides,
+                        mapCalibrationService
                 ),
                 currencyService,
                 kitEditorListener,
@@ -357,6 +378,36 @@ public final class SiegePlugin extends JavaPlugin {
         );
         siegeCommand.setExecutor(commandHandler);
         siegeCommand.setTabCompleter(commandHandler);
+        registerHelpCommand("commands", false);
+        registerHelpCommand("admincommands", true);
+    }
+
+    private void registerHelpCommand(String name, boolean admin) {
+        PluginCommand command = Objects.requireNonNull(getCommand(name), "Missing /" + name + " command");
+        command.setExecutor((sender, ignored, label, args) -> {
+            if (admin && !sender.hasPermission(SiegeAdminCommand.PERMISSION)) { sender.sendMessage("You do not have permission to view administrator commands."); return true; }
+            if (admin) {
+                sender.sendMessage("/siege admin map calibrate <map> — open a private disposable setup copy.");
+                sender.sendMessage("/siege admin map setspawn <red|blue> — save the team spawn at your position.");
+                sender.sendMessage("/siege admin map corner <1|2> — save an arena-bounds corner at your position.");
+                sender.sendMessage("/siege admin map setbanner [radius] — save the banner position and capture radius.");
+                sender.sendMessage("/siege admin map return — teleport back to your active calibration copy.");
+                sender.sendMessage("/siege admin map finish | abort — validate and enable this map, or discard setup from anywhere.");
+                sender.sendMessage("/siege admin supply register|unregister|list|info — manage map potion depots.");
+                sender.sendMessage("/siege admin rotation status|validate|retry|force — inspect, validate, recover, or request a map.");
+                sender.sendMessage("/siege admin savekit confirm — make your inventory the global default kit.");
+                sender.sendMessage("/siege admin setbanner — move the banner in an active real siege.");
+            } else {
+                sender.sendMessage("/siege join — opt into the active or next siege.");
+                sender.sendMessage("/siege lobby — return to the lobby and leave the battlefield.");
+                sender.sendMessage("/siege team — show your current Red or Blue team.");
+                sender.sendMessage("/siege switch <red|blue> — switch teams when the active siege permits it.");
+                sender.sendMessage("/siege kit — equip or customize your personal siege kit.");
+                sender.sendMessage("/siege shop — open the battle shop during an active siege.");
+                sender.sendMessage("/siege spectate | rejoin — watch the active siege, then return to combat.");
+            }
+            return true;
+        });
     }
 
     private void registerListeners() {
@@ -467,7 +518,7 @@ public final class SiegePlugin extends JavaPlugin {
                 new MatchScoreDao(database),
                 new MatchStatsDao(database),
                 new WorldCleanupDao(database),
-                () -> MapManifest.load(new File(getDataFolder(), "maps.yml")),
+                () -> runtimeMapOverrides.loadManifest(new File(getDataFolder(), "maps.yml")),
                 potionStorageService::findMapProblems,
                 scoringService,
                 matchStatsTracker,

@@ -1,0 +1,20 @@
+# Copy this file to deploy.local.conf (same directory) and fill in your real
+# values. deploy.local.conf is gitignored — it's specific to your machine and
+# your VPS, and should never be committed.
+
+# How you SSH into the VPS today (the account scp/ssh already prompts you
+# for a password with, e.g. from `ssh-copy-id`).
+VPS_SSH_TARGET="ubuntu@57.129.143.108"
+
+# The Minecraft server's root directory on the VPS — the folder containing
+# its paper.jar, plugins/, and world folders.
+VPS_SERVER_DIR="/home/minecraft/server"
+
+# The user/group that should own the deployed files on the VPS (usually
+# whichever account actually runs the Minecraft server process — check with
+# `ls -l` on an existing file under VPS_SERVER_DIR/plugins/ if unsure).
+VPS_REMOTE_USER="minecraft"
+
+# Directory containing the five authorized clean world folders. It defaults to
+# ~/Downloads/Sieges-master when omitted, so set this only if you move it.
+# MAP_TEMPLATE_SOURCE="/absolute/path/to/Sieges-master"

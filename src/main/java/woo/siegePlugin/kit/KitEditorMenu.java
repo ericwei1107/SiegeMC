@@ -61,17 +61,24 @@ public final class KitEditorMenu {
         int guiSlot = 0;
         for (KitChoiceCatalog.ChoiceGroup group : service.editableGroups()) {
             guiToKitSlot.put(guiSlot, group.slot());
-            Material material = Material.matchMaterial(group.iconMaterial());
-            if (material == null || !material.isItem()) {
-                material = Material.CHEST;
-            }
             KitChoiceCatalog.Choice selected = group.choice(selection.choiceAt(group.slot()))
                     .orElseGet(() -> group.choice(KitChoiceCatalog.DEFAULT_CHOICE).orElseThrow());
+            // The editor is a visual draft of the effective kit. On a first
+            // open that means the administrator's default slot; after a saved
+            // choice it means the player's replacement, rather than a generic
+            // category icon that hides what will actually be equipped.
+            KitItemSpec selectedSpec = selected.resolve(service.snapshot(), group.slot());
+            ItemStack display = selectedSpec == null
+                    ? new ItemStack(Material.BARRIER)
+                    : KitItems.create(selectedSpec);
+            if (display == null) {
+                display = new ItemStack(Material.BARRIER);
+            }
             inventory.setItem(guiSlot, labelled(
-                    new ItemStack(material),
+                    display,
                     Component.text(group.displayName(), NamedTextColor.GOLD),
                     List.of(
-                            Component.text("Selected: " + selected.displayName(), NamedTextColor.GREEN),
+                            Component.text("Selected: " + choiceName(service, group, selected), NamedTextColor.GREEN),
                             Component.text("Click to choose a replacement", NamedTextColor.GRAY)
                     )
             ));
@@ -115,7 +122,7 @@ public final class KitEditorMenu {
         String selectedKey = selection.choiceAt(group.slot());
         for (KitChoiceCatalog.Choice choice : group.choices()) {
             KitItemSpec spec = choice.resolve(service.snapshot(), group.slot());
-            ItemStack icon = KitItems.create(spec);
+            ItemStack icon = spec == null ? new ItemStack(Material.BARRIER) : KitItems.create(spec);
             if (icon == null) {
                 continue;
             }
@@ -124,10 +131,10 @@ public final class KitEditorMenu {
             inventory.setItem(guiSlot, labelled(
                     icon,
                     Component.text(
-                            choice.displayName() + (selected ? " (Selected)" : ""),
+                            choiceName(service, group, choice) + (selected ? " (Selected)" : ""),
                             selected ? NamedTextColor.GREEN : NamedTextColor.GOLD
                     ),
-                    List.of(Component.text("Click to use this replacement", NamedTextColor.GRAY))
+                    List.of(Component.text(spec == null ? "Click to leave this slot empty" : "Click to use this replacement", NamedTextColor.GRAY))
             ));
             guiSlot++;
         }
@@ -163,6 +170,16 @@ public final class KitEditorMenu {
         meta.lore(lore.stream().map(line -> line.decoration(TextDecoration.ITALIC, false)).toList());
         stack.setItemMeta(meta);
         return stack;
+    }
+
+    private static String choiceName(
+            KitService service,
+            KitChoiceCatalog.ChoiceGroup group,
+            KitChoiceCatalog.Choice choice
+    ) {
+        return choice.useDefault() && choice.resolve(service.snapshot(), group.slot()) == null
+                ? "Leave Empty"
+                : choice.displayName();
     }
 
     public static final class LauncherHolder extends BaseHolder {

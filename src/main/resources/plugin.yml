@@ -6,11 +6,24 @@ paper-plugin-loader: woo.siegePlugin.SiegePluginLoader
 api-version: '1.21.11'
 load: POSTWORLD
 depend: [Towny, CombatLog]
+# Not a hard dependency: SiegePlugin's own map rotation never needs
+# Multiverse-Core to be installed. This is purely a load-order hint so that
+# when it IS present, it enables (and loads its configured worlds, e.g. a
+# Multiverse-managed lobby) before SiegePlugin's startup validation runs.
+# Without this, Bukkit has no ordering information between the two plugins
+# and startup validation can fail on a world Multiverse hasn't loaded yet.
+softdepend: [Multiverse-Core]
 
 commands:
   siege:
     description: Main command for SiegePlugin
-    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|savekit|supply|rotation>>
+    usage: /siege <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby|admin <setbanner|savekit|supply|rotation|map>>
+  commands:
+    description: Show normal SiegePlugin commands
+    usage: /commands
+  admincommands:
+    description: Show SiegePlugin administrator commands
+    usage: /admincommands
 
 permissions:
   siege.team:

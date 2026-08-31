@@ -76,7 +76,7 @@ public final class PotionStorageService {
         Inventory inventory = doubleChestInventory(block).orElse(null);
         PotionStorageKey key = activeKeyFor(block).orElse(null);
         if (inventory == null || key == null) {
-            return RegistrationResult.failure("That block is not part of a double chest.");
+            return RegistrationResult.failure(doubleChestDiagnostic(block));
         }
         if (!withinActiveBounds(key)) {
             return RegistrationResult.failure(
@@ -307,7 +307,11 @@ public final class PotionStorageService {
     private static void refill(PotionStorage storage, Inventory inventory) {
         ItemStack[] contents = new ItemStack[inventory.getSize()];
         for (int slot = 0; slot < contents.length; slot++) {
-            contents[slot] = storage.potion();
+            ItemStack supply = storage.potion();
+            if (supply.getType() == org.bukkit.Material.BAKED_POTATO) {
+                supply.setAmount(supply.getMaxStackSize());
+            }
+            contents[slot] = supply;
         }
         inventory.setContents(contents);
     }
@@ -381,6 +385,17 @@ public final class PotionStorageService {
         }
         Inventory inventory = chest.getInventory();
         return inventory.getHolder() instanceof DoubleChest ? Optional.of(inventory) : Optional.empty();
+    }
+
+    private static String doubleChestDiagnostic(Block block) {
+        if (!(block.getState() instanceof Chest chest)) {
+            return "Targeted " + block.getType() + ", not a chest block. Aim at either chest half.";
+        }
+        Inventory inventory = chest.getInventory();
+        InventoryHolder holder = inventory.getHolder();
+        String holderType = holder == null ? "none" : holder.getClass().getSimpleName();
+        return "Chest target reports " + inventory.getSize() + " slots with holder " + holderType
+                + ", not a Bukkit DoubleChest. Check the exact server/Paper version and report this message.";
     }
 
     private static Optional<PotionStorageKey> keyFor(Block block) {

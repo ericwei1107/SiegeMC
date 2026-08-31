@@ -54,7 +54,7 @@ public final class MapManifest {
         return findConfigurationProblems(config);
     }
 
-    private static FileConfiguration read(File mapsFile) {
+    static FileConfiguration read(File mapsFile) {
         if (!mapsFile.isFile()) {
             throw new IllegalArgumentException("maps.yml is missing at " + mapsFile);
         }

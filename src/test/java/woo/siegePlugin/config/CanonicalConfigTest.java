@@ -87,7 +87,16 @@ class CanonicalConfigTest {
         assertTrue(KitSnapshot.findConfigurationProblems(config).isEmpty());
         KitChoiceCatalog.LoadResult catalog = KitChoiceCatalog.load(config, kit);
         assertTrue(catalog.problems().isEmpty());
-        assertTrue(catalog.catalog().isEmpty());
+        assertEquals(27, catalog.catalog().groups().size());
+        for (int slot = 9; slot <= 35; slot++) {
+            KitChoiceCatalog.ChoiceGroup group = catalog.catalog().groupAt(slot).orElseThrow();
+            assertEquals(6, group.choices().size());
+            assertTrue(group.choice("instant_health_ii").isPresent());
+            assertTrue(group.choice("speed_ii").isPresent());
+            assertTrue(group.choice("strength_ii").isPresent());
+            assertTrue(group.choice("cobblestone").isPresent());
+            assertTrue(group.choice("diamond_pickaxe").isPresent());
+        }
 
         assertTrue(CanonicalConfig.findConfigurationProblems(config).isEmpty());
     }
@@ -137,7 +146,14 @@ class CanonicalConfigTest {
                 List.of("Towny", "CombatLog"),
                 pluginDescription.getStringList("depend")
         );
-        assertTrue(pluginDescription.getStringList("softdepend").isEmpty());
+        // Load-order hint only, not a hard dependency: SiegePlugin must still
+        // start fine without Multiverse-Core installed, but must load after it
+        // when it is, so any Multiverse-managed world (e.g. the lobby) is ready
+        // before startup validation runs.
+        assertEquals(
+                List.of("Multiverse-Core"),
+                pluginDescription.getStringList("softdepend")
+        );
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.minecart.cooldown.bypass"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.spectate"));
         assertTrue(pluginDescription.isConfigurationSection("permissions.siege.rejoin"));

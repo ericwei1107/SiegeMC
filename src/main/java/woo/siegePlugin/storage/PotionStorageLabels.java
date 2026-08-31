@@ -8,9 +8,10 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.TextDisplay;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.PotionMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
-import woo.siegePlugin.team.Team;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -18,15 +19,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/** Creates and restores the native floating labels above registered chest pairs. */
+/** Creates compact floating text markers above registered chest pairs. */
 final class PotionStorageLabels {
 
     private final NamespacedKey storageIdKey;
 
     /**
-     * Every label this plugin has spawned, by storage. Tracking the entity UUIDs
-     * means a rebuild removes exactly SiegePlugin's own labels instead of
-     * sweeping every {@code TextDisplay} in every loaded world, which grew more
+     * Every label this plugin has spawned, by storage. Tracking entity UUIDs
+     * means a rebuild removes exactly SiegePlugin's own markers instead of
+     * sweeping every text display in every loaded world, which grew more
      * expensive with each additional world and could touch entities the plugin
      * does not own.
      */
@@ -42,6 +43,9 @@ final class PotionStorageLabels {
     }
 
     void create(PotionStorage storage, String runtimeWorld) {
+        // Clear an old text label or item marker left by a prior plugin build
+        // before creating this copy's marker.
+        remove(storage);
         World world = Bukkit.getWorld(runtimeWorld);
         if (world == null) {
             return;
@@ -55,9 +59,7 @@ final class PotionStorageLabels {
                 (first.z() + second.z() + 1.0D) / 2.0D
         );
         TextDisplay display = world.spawn(location, TextDisplay.class);
-        NamedTextColor teamColor = storage.team() == Team.RED ? NamedTextColor.RED : NamedTextColor.BLUE;
-        display.text(Component.text(storage.team().defaultDisplayName(), teamColor)
-                .append(Component.text(" • " + PotionStorageTemplates.label(storage.potion()), NamedTextColor.WHITE)));
+        display.text(markerText(storage.potion()));
         display.setSeeThrough(true);
         display.setShadowed(true);
         display.getPersistentDataContainer().set(storageIdKey, PersistentDataType.STRING, storage.id().toString());
@@ -66,13 +68,13 @@ final class PotionStorageLabels {
 
     void remove(PotionStorage storage) {
         removeTracked(storage.id());
-        // A label spawned before a restart is not in the tracking map, so fall
+        // A marker spawned before a restart is not in the tracking map, so fall
         // back to the tagged-entity search for this one storage only.
         String id = storage.id().toString();
         for (World world : Bukkit.getWorlds()) {
-            for (TextDisplay display : world.getEntitiesByClass(TextDisplay.class)) {
-                if (id.equals(display.getPersistentDataContainer().get(storageIdKey, PersistentDataType.STRING))) {
-                    display.remove();
+            for (Entity entity : world.getEntities()) {
+                if (id.equals(entity.getPersistentDataContainer().get(storageIdKey, PersistentDataType.STRING))) {
+                    entity.remove();
                 }
             }
         }
@@ -95,5 +97,19 @@ final class PotionStorageLabels {
                 entity.remove();
             }
         }
+    }
+
+    private static Component markerText(ItemStack supply) {
+        if (supply.getType() == org.bukkit.Material.BAKED_POTATO) {
+            return Component.text("Food", NamedTextColor.GOLD);
+        }
+        NamedTextColor color = NamedTextColor.WHITE;
+        if (supply.getItemMeta() instanceof PotionMeta meta && meta.hasBasePotionType()) {
+            String type = meta.getBasePotionType().name();
+            if (type.contains("HEALING")) color = NamedTextColor.RED;
+            else if (type.contains("SWIFTNESS")) color = NamedTextColor.BLUE;
+            else if (type.contains("STRENGTH")) color = NamedTextColor.YELLOW;
+        }
+        return Component.text("■", color);
     }
 }

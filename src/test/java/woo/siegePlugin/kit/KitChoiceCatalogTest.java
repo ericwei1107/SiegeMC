@@ -84,6 +84,25 @@ class KitChoiceCatalogTest {
         assertTrue(result.problems().stream().anyMatch(problem -> problem.contains("lowercase key")));
     }
 
+    @Test
+    void emptyDefaultStorageSlotIsAValidEditableGroup() throws Exception {
+        YamlConfiguration config = validConfig();
+        config.set("kit.editor.slots.12.display-name", "Supply Slot 12");
+        config.set("kit.editor.slots.12.icon", "SPLASH_POTION");
+        config.set("kit.editor.slots.12.choices.default.use-default", true);
+        config.set("kit.editor.slots.12.choices.healing.material", "SPLASH_POTION");
+        config.set("kit.editor.slots.12.choices.healing.amount", 1);
+        config.set("kit.editor.slots.12.choices.healing.potion-type", "STRONG_HEALING");
+
+        KitChoiceCatalog.LoadResult result = KitChoiceCatalog.load(config, KitSnapshot.fromConfig(config));
+
+        assertTrue(result.problems().isEmpty());
+        assertTrue(result.catalog().compatibleGroupAt(12, KitSnapshot.fromConfig(config)).isPresent());
+        assertEquals(null, result.catalog().groupAt(12).orElseThrow()
+                .choice(KitChoiceCatalog.DEFAULT_CHOICE).orElseThrow()
+                .resolve(KitSnapshot.fromConfig(config), 12));
+    }
+
     static YamlConfiguration validConfig() throws InvalidConfigurationException {
         return config("""
                 kit:

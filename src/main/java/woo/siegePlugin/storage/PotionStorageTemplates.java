@@ -19,24 +19,29 @@ public final class PotionStorageTemplates {
         };
     }
 
+    /** Supplies intentionally stay narrow: combat potions plus the standard food ration. */
+    public static boolean isSupportedSupply(ItemStack item) {
+        return isPotion(item) || (item != null && item.getType() == org.bukkit.Material.BAKED_POTATO);
+    }
+
     public static ItemStack uniformPotionTemplate(ItemStack[] contents) {
         ItemStack template = null;
         for (ItemStack item : contents) {
             if (item == null || item.getType().isAir()) {
                 continue;
             }
-            if (!isPotion(item)) {
-                throw new IllegalArgumentException("the chest may contain only one kind of potion");
+            if (!isSupportedSupply(item)) {
+                throw new IllegalArgumentException("the chest may contain only one kind of potion or baked potatoes");
             }
             if (template == null) {
                 template = item.clone();
                 template.setAmount(1);
             } else if (!template.isSimilar(item)) {
-                throw new IllegalArgumentException("the chest contains different potion items");
+                throw new IllegalArgumentException("the chest contains different supply items");
             }
         }
         if (template == null) {
-            throw new IllegalArgumentException("put a sample potion in the double chest first");
+            throw new IllegalArgumentException("put a sample potion or baked potato in the double chest first");
         }
         return template;
     }

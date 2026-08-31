@@ -1,9 +1,11 @@
 # SiegePlugin 1.1 clean-copy map templates.
 #
-# Copy the authorized template folders from refs/Sieges-master into
-# plugins/SiegePlugin/maps/templates/<template-folder>. These folders are
-# never played directly. SiegePlugin copies a selected template to a generated
-# active-world folder for each round and deletes only that generated copy.
+# `scripts/deploy.sh` imports the authorized folders from the local
+# Sieges-master checkout (MAP_TEMPLATE_SOURCE) into
+# plugins/SiegePlugin/maps/templates/<template-folder>, excluding session.lock.
+# These folders are never played directly. SiegePlugin copies a selected
+# template to a generated active-world folder for each round and deletes only
+# that generated copy.
 #
 # Each initial entry is intentionally disabled until staff set Red/Blue spawns,
 # the SiegePlugin capture-banner location/radius, and the arena boundary.
@@ -42,25 +44,37 @@
 # Registered potion supplies are stored separately in potion-storages.yml and
 # are keyed by map id, so re-register them once per map with
 # `/siege admin supply register <red|blue>` while standing in that map.
+#
+# In-game setup: `/siege admin map calibrate <map-id>` creates a disposable
+# clean copy. Set both spawns, two bounds corners, and the banner, then use
+# `finish` (or `abort` from anywhere). Finish saves block edits into the clean
+# template while retaining the previous template as a timestamped backup; map
+# coordinates are stored in runtime-map-overrides.yml. The map is enabled only
+# after its own validation succeeds. Abort never changes the template.
 
 maps:
   al_quds:
     enabled: false
     display-name: "Siege of Al Quds"
     template-folder: "al_quds"
+    calibration-spawn: { x: 3971.5, y: 63, z: -3780.5, yaw: 0, pitch: 0 }
   iron_mountain1:
     enabled: false
     display-name: "Siege of Iron Mountain"
     template-folder: "iron_mountain1"
+    calibration-spawn: { x: -17278.5, y: 111, z: -7682.5, yaw: 0, pitch: 0 }
   kansas_city_outpost:
     enabled: false
     display-name: "Siege of Kansas City Outpost"
     template-folder: "kansas_city_outpost"
+    calibration-spawn: { x: -11807.5, y: 87, z: -4789.5, yaw: 0, pitch: 0 }
   kazan:
     enabled: false
     display-name: "Siege of Kazan"
     template-folder: "kazan"
+    calibration-spawn: { x: 9090.5, y: 65, z: -7496.5, yaw: 0, pitch: 0 }
   murmansk:
     enabled: false
     display-name: "Siege of Murmansk"
     template-folder: "murmansk"
+    calibration-spawn: { x: 3957.5, y: 70, z: -8147.5, yaw: 0, pitch: 0 }

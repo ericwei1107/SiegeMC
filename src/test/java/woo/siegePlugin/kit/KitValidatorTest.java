@@ -73,4 +73,23 @@ class KitValidatorTest {
 
         assertFalse(validator.findSpecProblems(selection, assembled).isEmpty());
     }
+
+    @Test
+    void configuredReplacementCanOccupyAnOtherwiseEmptyDefaultSlot() throws Exception {
+        YamlConfiguration config = KitChoiceCatalogTest.validConfig();
+        config.set("kit.editor.slots.12.display-name", "Supply Slot 12");
+        config.set("kit.editor.slots.12.choices.default.use-default", true);
+        config.set("kit.editor.slots.12.choices.healing.material", "SPLASH_POTION");
+        config.set("kit.editor.slots.12.choices.healing.amount", 1);
+        config.set("kit.editor.slots.12.choices.healing.potion-type", "STRONG_HEALING");
+        KitSnapshot emptySlotSnapshot = KitSnapshot.fromConfig(config);
+        KitChoiceCatalog emptySlotCatalog = KitChoiceCatalog.load(config, emptySlotSnapshot).catalog();
+
+        KitLoadoutAssembler.Resolved resolved = new KitLoadoutAssembler(emptySlotSnapshot, emptySlotCatalog)
+                .resolve(new KitSelection(Map.of(12, "healing")));
+
+        assertEquals("SPLASH_POTION", resolved.specs().get(12).material());
+        assertEquals("STRONG_HEALING", resolved.specs().get(12).potionType());
+        assertFalse(resolved.specs().containsKey(13));
+    }
 }

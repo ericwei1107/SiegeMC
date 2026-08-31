@@ -35,8 +35,8 @@ public final class PotionStorageStore {
                 UUID id = UUID.fromString(rawId);
                 Team team = Team.fromInput(config.getString(path + ".team")).orElseThrow();
                 ItemStack potion = config.getItemStack(path + ".potion");
-                if (potion == null || !PotionStorageTemplates.isPotion(potion)) {
-                    throw new IllegalArgumentException("potion is missing or invalid");
+                if (potion == null || !PotionStorageTemplates.isSupportedSupply(potion)) {
+                    throw new IllegalArgumentException("supply item is missing or unsupported");
                 }
                 MapChestLocation first = location(config, path + ".first");
                 MapChestLocation second = location(config, path + ".second");

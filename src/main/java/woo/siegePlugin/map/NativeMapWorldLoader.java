@@ -37,8 +37,12 @@ public final class NativeMapWorldLoader {
 
     NativeMapWorldLoader(JavaPlugin plugin, Path templateRoot, Path worldContainer) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
-        this.templateRoot = Objects.requireNonNull(templateRoot, "templateRoot");
-        this.worldContainer = Objects.requireNonNull(worldContainer, "worldContainer");
+        this.templateRoot = Objects.requireNonNull(templateRoot, "templateRoot")
+                .toAbsolutePath()
+                .normalize();
+        this.worldContainer = Objects.requireNonNull(worldContainer, "worldContainer")
+                .toAbsolutePath()
+                .normalize();
     }
 
     public CompletableFuture<ActiveMapWorld> load(SiegeMap map) {
@@ -144,6 +148,34 @@ public final class NativeMapWorldLoader {
         }).thenCompose(folder -> deleteOnWorker(folder));
     }
 
+    /** Saves a calibration world, promotes it to the clean template, and retains the old template as a backup. */
+    public CompletableFuture<Path> promote(ActiveMapWorld activeWorld) {
+        Objects.requireNonNull(activeWorld, "activeWorld");
+        return onServerThread(() -> {
+            World world = activeWorld.world();
+            if (!world.getPlayers().isEmpty()) {
+                throw new IllegalStateException("Cannot promote calibration while players remain in " + world.getName());
+            }
+            world.save();
+            if (!Bukkit.unloadWorld(world, true)) {
+                throw new IllegalStateException("Bukkit declined to save and unload calibration " + world.getName());
+            }
+            return activeWorld.folder();
+        }).thenCompose(folder -> {
+            CompletableFuture<Path> result = new CompletableFuture<>();
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    result.complete(CleanCopyDirectory.promoteActiveCopy(
+                            worldContainer, folder, templateRoot, activeWorld.map().templateFolder()
+                    ));
+                } catch (Throwable failure) {
+                    result.completeExceptionally(failure);
+                }
+            });
+            return result;
+        });
+    }
+
     /** Reopens the exact disposable copy recorded by durable ACTIVE state. */
     public CompletableFuture<ActiveMapWorld> resume(SiegeMap map, String runtimeWorldName) {
         Objects.requireNonNull(map, "map");
@@ -151,11 +183,23 @@ public final class NativeMapWorldLoader {
         if (!runtimeWorldName.startsWith("siege-active-")) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Not a SiegePlugin active world"));
         }
-        Path folder = worldContainer.resolve(runtimeWorldName).normalize();
-        if (!folder.getParent().equals(worldContainer.normalize()) || !java.nio.file.Files.isDirectory(folder)) {
+        Path folder = resolveRuntimeFolder(worldContainer, runtimeWorldName);
+        if (!java.nio.file.Files.isDirectory(folder)) {
             return CompletableFuture.failedFuture(new IllegalStateException("Recorded active world is missing"));
         }
         return onServerThread(() -> createWorld(map, folder));
+    }
+
+    /** Resolves one generated world directly beneath Paper's world container. */
+    static Path resolveRuntimeFolder(Path worldContainer, String runtimeWorldName) {
+        Path container = Objects.requireNonNull(worldContainer, "worldContainer")
+                .toAbsolutePath()
+                .normalize();
+        Path folder = container.resolve(runtimeWorldName).normalize();
+        if (!container.equals(folder.getParent())) {
+            throw new IllegalArgumentException("Active world escapes its world container");
+        }
+        return folder;
     }
 
     private ActiveMapWorld createWorld(SiegeMap map, Path folder) {
