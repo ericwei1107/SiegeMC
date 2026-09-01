@@ -18,6 +18,8 @@ import woo.siegePlugin.kit.KitEditorListener;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 import woo.siegePlugin.round.RotationCoordinator;
 import woo.siegePlugin.round.RoundPhase;
+import woo.siegePlugin.display.SidebarPreferenceService;
+import woo.siegePlugin.capture.BossBarPreferenceService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,6 +39,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final KitEditorListener kitEditorListener;
     private final Logger logger;
     private final RotationCoordinator rotation;
+    private final SidebarPreferenceService sidebarPreferences;
+    private final BossBarPreferenceService bossBarPreferences;
 
     public SiegeCommand(
             TownyAdapter townyAdapter,
@@ -49,7 +53,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             Logger logger
     ) {
         this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
-                adminCommand, currencyService, kitEditorListener, logger, null);
+                adminCommand, currencyService, kitEditorListener, logger, null, null, null);
     }
 
     public SiegeCommand(
@@ -63,6 +67,23 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             Logger logger,
             RotationCoordinator rotation
     ) {
+        this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
+                adminCommand, currencyService, kitEditorListener, logger, rotation, null, null);
+    }
+
+    public SiegeCommand(
+            TownyAdapter townyAdapter,
+            TeamSwitchService teamSwitchService,
+            TeamDisplayService teamDisplayService,
+            PlayerStateTransitionService playerStateTransitionService,
+            SiegeAdminCommand adminCommand,
+            CurrencyService currencyService,
+            KitEditorListener kitEditorListener,
+            Logger logger,
+            RotationCoordinator rotation,
+            SidebarPreferenceService sidebarPreferences,
+            BossBarPreferenceService bossBarPreferences
+    ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
@@ -72,6 +93,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         this.kitEditorListener = kitEditorListener;
         this.logger = logger;
         this.rotation = rotation;
+        this.sidebarPreferences = sidebarPreferences;
+        this.bossBarPreferences = bossBarPreferences;
     }
 
     @Override
@@ -108,9 +131,23 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         if (args.length >= 1 && args[0].equalsIgnoreCase("lobby")) {
             return handleLobby(sender);
         }
+        if (args.length == 1 && args[0].equalsIgnoreCase("sidebar")) return toggleSidebar(sender);
+        if (args.length == 1 && args[0].equalsIgnoreCase("bossbar")) return toggleBossBar(sender);
 
         sender.sendMessage("Usage: /" + label
                 + " <team|switch <red|blue>|shop|kit|spectate|rejoin|join|lobby>");
+        return true;
+    }
+
+    private boolean toggleSidebar(CommandSender sender) {
+        if (!(sender instanceof Player player) || sidebarPreferences == null) { sender.sendMessage("Only a player can toggle the sidebar."); return true; }
+        sidebarPreferences.toggle(player, sender::sendMessage);
+        return true;
+    }
+
+    private boolean toggleBossBar(CommandSender sender) {
+        if (!(sender instanceof Player player) || bossBarPreferences == null) { sender.sendMessage("Only a player can toggle banner capture boss bars."); return true; }
+        bossBarPreferences.toggle(player, sender::sendMessage);
         return true;
     }
 
@@ -408,6 +445,8 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             if (sender.hasPermission("siege.lobby") && "lobby".startsWith(prefix)) {
                 suggestions.add("lobby");
             }
+            if (sender.hasPermission("siege.sidebar") && "sidebar".startsWith(prefix)) suggestions.add("sidebar");
+            if (sender.hasPermission("siege.bossbar") && "bossbar".startsWith(prefix)) suggestions.add("bossbar");
             return suggestions;
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("switch") && sender.hasPermission("siege.switch")) {

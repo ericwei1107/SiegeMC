@@ -23,7 +23,7 @@ class SiegeAdminCommandTest {
         List<String> completions = command.tabComplete(sender, new String[]{"admin", "reset"});
         assertEquals(List.of(), completions);
         assertTrue(command.handle(sender, "siege", new String[]{"admin", "resetscores", "confirm"}));
-        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation|map|testscore>"), messages);
+        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation|map|testscore|title>"), messages);
     }
 
     @Test

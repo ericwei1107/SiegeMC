@@ -18,6 +18,8 @@ import woo.siegePlugin.storage.PotionStorage;
 import woo.siegePlugin.storage.PotionStorageService;
 import woo.siegePlugin.storage.PotionStorageTemplates;
 import woo.siegePlugin.team.Team;
+import woo.siegePlugin.title.PlayerTitle;
+import woo.siegePlugin.title.PlayerTitleService;
 
 import java.io.IOException;
 import java.util.List;
@@ -29,7 +31,7 @@ import java.util.logging.Logger;
 public final class SiegeAdminCommand {
 
     public static final String PERMISSION = "siege.admin";
-    private static final List<String> SUBCOMMANDS = List.of("setbanner", "savekit", "supply", "rotation", "map", "testscore");
+    private static final List<String> SUBCOMMANDS = List.of("setbanner", "savekit", "supply", "rotation", "map", "testscore", "title");
 
     private final JavaPlugin plugin;
     private final CaptureService capture;
@@ -41,13 +43,14 @@ public final class SiegeAdminCommand {
     private final RuntimeMapOverrides runtimeMapOverrides;
     private final MapCalibrationService calibration;
     private final ScoringService scoring;
+    private final PlayerTitleService titles;
 
     public SiegeAdminCommand(
             JavaPlugin plugin, CaptureService capture, woo.siegePlugin.score.ScoringService scoring,
             KitService kits, Logger logger, PotionStorageService storages, RotationCoordinator rotation,
             RuntimeKitOverrides runtimeKitOverrides, RuntimeMapOverrides runtimeMapOverrides
     ) {
-        this(plugin, capture, scoring, kits, logger, storages, rotation, runtimeKitOverrides, runtimeMapOverrides, null);
+        this(plugin, capture, scoring, kits, logger, storages, rotation, runtimeKitOverrides, runtimeMapOverrides, null, null);
     }
 
     public SiegeAdminCommand(
@@ -62,6 +65,14 @@ public final class SiegeAdminCommand {
             RuntimeMapOverrides runtimeMapOverrides,
             MapCalibrationService calibration
     ) {
+        this(plugin, capture, scoring, kits, logger, storages, rotation, runtimeKitOverrides, runtimeMapOverrides, calibration, null);
+    }
+
+    public SiegeAdminCommand(
+            JavaPlugin plugin, CaptureService capture, ScoringService scoring, KitService kits, Logger logger,
+            PotionStorageService storages, RotationCoordinator rotation, RuntimeKitOverrides runtimeKitOverrides,
+            RuntimeMapOverrides runtimeMapOverrides, MapCalibrationService calibration, PlayerTitleService titles
+    ) {
         this.plugin = plugin;
         this.capture = capture;
         this.kits = kits;
@@ -72,6 +83,7 @@ public final class SiegeAdminCommand {
         this.runtimeMapOverrides = runtimeMapOverrides;
         this.calibration = calibration;
         this.scoring = scoring;
+        this.titles = titles;
     }
 
     public boolean handle(CommandSender sender, String label, String[] args) {
@@ -90,6 +102,7 @@ public final class SiegeAdminCommand {
             case "rotation" -> rotation(sender, label, args);
             case "map" -> map(sender, label, args);
             case "testscore" -> testScore(sender);
+            case "title" -> title(sender, label, args);
             default -> {
                 usage(sender, label);
                 yield true;
@@ -105,6 +118,16 @@ public final class SiegeAdminCommand {
         }
         if (args.length == 3 && args[1].equalsIgnoreCase("savekit")) {
             return "confirm".startsWith(args[2].toLowerCase(Locale.ROOT)) ? List.of("confirm") : List.of();
+        }
+        if (args.length == 3 && args[1].equalsIgnoreCase("title")) {
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            return plugin.getServer().getOnlinePlayers().stream().map(Player::getName)
+                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();
+        }
+        if (args.length == 4 && args[1].equalsIgnoreCase("title")) {
+            String prefix = args[3].toLowerCase(Locale.ROOT);
+            return java.util.Arrays.stream(PlayerTitle.values()).map(value -> value.name().toLowerCase(Locale.ROOT))
+                    .filter(value -> value.startsWith(prefix)).toList();
         }
         if (args.length == 3 && args[1].equalsIgnoreCase("rotation")) {
             String prefix = args[2].toLowerCase(Locale.ROOT);
@@ -147,6 +170,21 @@ public final class SiegeAdminCommand {
             return true;
         }
         scoring.primeTeamForEndTest(team, sender::sendMessage);
+        return true;
+    }
+
+    private boolean title(CommandSender sender, String label, String[] args) {
+        if (titles == null || args.length != 4) {
+            sender.sendMessage("Usage: /" + label + " admin title <online-player> <owner|admin|moderator|helper|member>");
+            return true;
+        }
+        Player player = plugin.getServer().getPlayerExact(args[2]);
+        PlayerTitle title = PlayerTitle.fromStorage(args[3]).orElse(null);
+        if (player == null || title == null) {
+            sender.sendMessage("Choose an online player and a valid title.");
+            return true;
+        }
+        titles.assign(player, title, sender::sendMessage);
         return true;
     }
 

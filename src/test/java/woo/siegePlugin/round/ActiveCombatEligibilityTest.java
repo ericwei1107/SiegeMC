@@ -51,15 +51,19 @@ class ActiveCombatEligibilityTest {
 
     @Test
     void aRosteredFighterOnTheActiveMapIsEligible() {
-        assertTrue(eligibility.isEligibleFighter(player(fighterId, BATTLEFIELD)));
+        Player fighter = player(fighterId, BATTLEFIELD);
+        assertTrue(eligibility.isEligibleFighter(fighter));
+        assertTrue(eligibility.fighterTeam(fighter).filter(Team.RED::equals).isPresent());
         assertTrue(eligibility.isOnBattlefield(player(fighterId, BATTLEFIELD)));
         assertTrue(eligibility.activeMatchId().isPresent());
     }
 
     @Test
     void aFighterStandingInTheLobbyIsNotEligible() {
-        assertFalse(eligibility.isEligibleFighter(player(fighterId, LOBBY)),
+        Player fighterInLobby = player(fighterId, LOBBY);
+        assertFalse(eligibility.isEligibleFighter(fighterInLobby),
                 "another world must never count as the battlefield");
+        assertTrue(eligibility.fighterTeam(fighterInLobby).isEmpty());
     }
 
     @Test
@@ -79,6 +83,7 @@ class ActiveCombatEligibilityTest {
         assertTrue(eligibility.isOnBattlefield(spectator));
         assertFalse(eligibility.isEligibleFighter(spectator),
                 "a spectator must not score, capture, or earn currency");
+        assertTrue(eligibility.fighterTeam(spectator).isEmpty());
     }
 
     @Test

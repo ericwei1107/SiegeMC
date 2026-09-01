@@ -30,9 +30,10 @@ spectator:
 lobby:
   world: "lobby"
   spawn:
-    x: 16
-    y: 67
-    z: -48
+    # The Helloween lobby world's authored spawn point.
+    x: 1
+    y: 4
+    z: 0
 
 capture-point:
   world: "siegeworld"
@@ -71,6 +72,11 @@ minecart:
 
 sidebar:
   title: "Siege Status"
+  server-ip: "Coming soon"
+
+cooldowns:
+  ender-pearl-seconds: 15
+  riptide-seconds: 5
 
 currency:
   # One opposing-team kill pays 15 coins. Each completed banner controller

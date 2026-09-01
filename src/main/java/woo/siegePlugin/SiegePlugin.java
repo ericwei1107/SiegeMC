@@ -31,13 +31,26 @@ import woo.siegePlugin.minecart.MinecartSweeper;
 import woo.siegePlugin.minecart.MinecartTerrainProtectionListener;
 import woo.siegePlugin.minecart.MinecartWorldCompatibility;
 import woo.siegePlugin.minecart.SiegeMinecartMarker;
-import woo.siegePlugin.combat.CombatLogAdapter;
+import woo.siegePlugin.combat.CombatTagAdapter;
 import woo.siegePlugin.combat.CombatTagStatus;
+import woo.siegePlugin.combat.CombatTaggedCommandListener;
+import woo.siegePlugin.combat.CombatTaggedInteractionListener;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
 import woo.siegePlugin.display.SidebarService;
 import woo.siegePlugin.display.SidebarSettings;
+import woo.siegePlugin.display.SidebarPreferenceService;
+import woo.siegePlugin.display.SidebarPreferenceListener;
+import woo.siegePlugin.capture.BossBarPreferenceService;
+import woo.siegePlugin.capture.BossBarPreferenceListener;
+import woo.siegePlugin.title.PlayerTitleService;
+import woo.siegePlugin.title.PlayerTitleListener;
+import woo.siegePlugin.persistence.PlayerTitleDao;
+import woo.siegePlugin.persistence.PlayerVisibilityPreferenceDao;
+import woo.siegePlugin.mobility.MobilityCooldownListener;
+import woo.siegePlugin.mobility.MobilityCooldownSettings;
+import woo.siegePlugin.death.DeathFireworkEffects;
 import woo.siegePlugin.round.RoundActivityStatus;
 import woo.siegePlugin.death.SiegeDeathListener;
 import woo.siegePlugin.kit.KitChoiceCatalog;
@@ -47,6 +60,9 @@ import woo.siegePlugin.kit.KitCommandSettings;
 import woo.siegePlugin.kit.KitService;
 import woo.siegePlugin.kit.KitSnapshot;
 import woo.siegePlugin.kit.RuntimeKitOverrides;
+import woo.siegePlugin.lobby.LobbyJoinItem;
+import woo.siegePlugin.lobby.LobbyJoinItemListener;
+import woo.siegePlugin.lobby.TutorialBookListener;
 import woo.siegePlugin.economy.CurrencyService;
 import woo.siegePlugin.economy.CurrencySettings;
 import woo.siegePlugin.economy.ShopListener;
@@ -139,6 +155,10 @@ public final class SiegePlugin extends JavaPlugin {
     private RuntimeMapOverrides runtimeMapOverrides;
     private MapCalibrationService mapCalibrationService;
     private CombatTagStatus combatTagStatus;
+    private PlayerTitleService playerTitleService;
+    private SidebarPreferenceService sidebarPreferences;
+    private BossBarPreferenceService bossBarPreferences;
+    private MobilityCooldownListener mobilityCooldowns;
 
     @Override
     public void onEnable() {
@@ -201,8 +221,8 @@ public final class SiegePlugin extends JavaPlugin {
                 CaptureSettings.fromConfig(getConfig()),
                 phaseStatus
         );
-        Plugin combatLog = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatLog"));
-        combatTagStatus = CombatLogAdapter.fromPlugin(combatLog);
+        Plugin combatTag = Objects.requireNonNull(getServer().getPluginManager().getPlugin("CombatTag"));
+        combatTagStatus = CombatTagAdapter.fromPlugin(combatTag);
         this.teamSwitchService = new TeamSwitchService(
                 townyAdapter,
                 combatTagStatus,
@@ -211,6 +231,7 @@ public final class SiegePlugin extends JavaPlugin {
         );
         initializePlayerStateTransitions(combatTagStatus);
         playerStateTransitionService.setSpectatorStateChangeHandler(teamDisplayService::handleTeamSwitch);
+        playerStateTransitionService.setLobbyItemHandler(LobbyJoinItem::giveTo);
         playerStateTransitionService.setRoundActiveSupplier(activeRounds::isActive);
         this.scoringService = new ScoringService(
                 this,
@@ -237,6 +258,11 @@ public final class SiegePlugin extends JavaPlugin {
         registerCommands();
         registerListeners();
         teamDisplayService.initializeOnlinePlayers();
+        getServer().getOnlinePlayers().forEach(player -> {
+            playerTitleService.load(player);
+            sidebarPreferences.load(player);
+            bossBarPreferences.load(player);
+        });
         currencyService.start();
         kitService.loadOnlinePlayers();
         captureService.start();
@@ -339,6 +365,7 @@ public final class SiegePlugin extends JavaPlugin {
         problems.addAll(TeamSpawnLocations.findConfigurationProblems(config, getServer()));
         problems.addAll(TeamIdentityColors.findConfigurationProblems(config));
         problems.addAll(SidebarSettings.findConfigurationProblems(config));
+        problems.addAll(MobilityCooldownSettings.findConfigurationProblems(config));
 
         File mapsFile = new File(getDataFolder(), "maps.yml");
         problems.addAll(runtimeMapOverrides.findConfigurationProblems(mapsFile));
@@ -348,11 +375,11 @@ public final class SiegePlugin extends JavaPlugin {
             problems.add("maps.yml could not be loaded: " + exception.getMessage());
         }
 
-        Plugin combatLog = getServer().getPluginManager().getPlugin("CombatLog");
-        if (combatLog == null || !combatLog.isEnabled()) {
-            problems.add("CombatLog is missing or not enabled");
+        Plugin combatTag = getServer().getPluginManager().getPlugin("CombatTag");
+        if (combatTag == null || !combatTag.isEnabled()) {
+            problems.add("CombatTag is missing or not enabled");
         } else {
-            problems.addAll(CombatLogAdapter.findIntegrationProblems(combatLog));
+            problems.addAll(CombatTagAdapter.findIntegrationProblems(combatTag));
         }
 
         return problems;
@@ -381,12 +408,15 @@ public final class SiegePlugin extends JavaPlugin {
                         rotationCoordinator,
                         runtimeKitOverrides,
                         runtimeMapOverrides,
-                        mapCalibrationService
+                        mapCalibrationService,
+                        playerTitleService
                 ),
                 currencyService,
                 kitEditorListener,
                 getLogger(),
-                rotationCoordinator
+                rotationCoordinator,
+                sidebarPreferences,
+                bossBarPreferences
         );
         siegeCommand.setExecutor(commandHandler);
         siegeCommand.setTabCompleter(commandHandler);
@@ -425,6 +455,7 @@ public final class SiegePlugin extends JavaPlugin {
                 sender.sendMessage("/siege admin testscore — set your active team's score to 9,990 for an end-of-siege test.");
                 sender.sendMessage("/siege admin savekit confirm — make your inventory the global default kit.");
                 sender.sendMessage("/siege admin setbanner — move the banner in an active real siege.");
+                sender.sendMessage("/siege admin title <player> <role> — set a native Tab-list title.");
             } else {
                 sender.sendMessage("/siege join — opt into the active or next siege.");
                 sender.sendMessage("/siege lobby — return to the lobby and leave the battlefield.");
@@ -433,6 +464,7 @@ public final class SiegePlugin extends JavaPlugin {
                 sender.sendMessage("/siege kit — equip or customize your personal siege kit.");
                 sender.sendMessage("/siege shop — open the battle shop during an active siege.");
                 sender.sendMessage("/siege spectate | rejoin — watch the active siege, then return to combat.");
+                sender.sendMessage("/siege sidebar | bossbar — toggle your saved HUD preferences.");
                 sender.sendMessage("/discord — open the SiegeMC Discord invite.");
             }
             return true;
@@ -444,15 +476,22 @@ public final class SiegePlugin extends JavaPlugin {
                 new TeamAssignmentListener(this, teamDisplayService::handleJoin),
                 this
         );
+        getServer().getPluginManager().registerEvents(new PlayerTitleListener(playerTitleService), this);
+        getServer().getPluginManager().registerEvents(new SidebarPreferenceListener(sidebarPreferences), this);
+        getServer().getPluginManager().registerEvents(new BossBarPreferenceListener(bossBarPreferences), this);
         getServer().getPluginManager().registerEvents(new RotationJoinListener(this, rotationCoordinator), this);
         getServer().getPluginManager().registerEvents(
                 new TeamDisplayListener(teamDisplayService),
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new PlayerStateTransitionListener(playerStateTransitionService),
+                new PlayerStateTransitionListener(playerStateTransitionService, eligibility, teamSpawnLocations),
                 this
         );
+        getServer().getPluginManager().registerEvents(
+                new LobbyJoinItemListener(this, playerStateTransitionService), this
+        );
+        getServer().getPluginManager().registerEvents(new TutorialBookListener(this), this);
         getServer().getPluginManager().registerEvents(
                 new CaptureListener(captureService),
                 this
@@ -460,6 +499,8 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new BaseClaimInteractionListener(baseClaimPolicy, combatTagStatus), this
         );
+        getServer().getPluginManager().registerEvents(new CombatTaggedInteractionListener(combatTagStatus), this);
+        getServer().getPluginManager().registerEvents(new CombatTaggedCommandListener(combatTagStatus), this);
         getServer().getPluginManager().registerEvents(new BaseClaimBoundaryListener(baseClaimPolicy), this);
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
@@ -482,6 +523,11 @@ public final class SiegePlugin extends JavaPlugin {
                 ),
                 this
         );
+        getServer().getPluginManager().registerEvents(new DeathFireworkEffects(this), this);
+        this.mobilityCooldowns = new MobilityCooldownListener(
+                eligibility::isEligibleFighter, MobilityCooldownSettings.fromConfig(getConfig())
+        );
+        getServer().getPluginManager().registerEvents(mobilityCooldowns, this);
         getServer().getPluginManager().registerEvents(
                 new CombatStatsListener(townyAdapter, siegeMinecartMarker, eligibility, matchStatsTracker),
                 this
@@ -490,7 +536,9 @@ public final class SiegePlugin extends JavaPlugin {
                 new ShopListener(currencyService),
                 this
         );
-        getServer().getPluginManager().registerEvents(new PotionStorageListener(potionStorageService), this);
+        getServer().getPluginManager().registerEvents(
+                new PotionStorageListener(potionStorageService, combatTagStatus), this
+        );
         getServer().getPluginManager().registerEvents(kitEditorListener, this);
         getServer().getPluginManager().registerEvents(
                 new MinecartPlacementListener(
@@ -620,6 +668,13 @@ public final class SiegePlugin extends JavaPlugin {
                 captureService
         );
         this.playerStateTransitions = new PlayerStateTransitions(getServer());
+        this.playerTitleService = new PlayerTitleService(this, new PlayerTitleDao(database));
+        this.sidebarPreferences = new SidebarPreferenceService(
+                this, sidebarService, new PlayerVisibilityPreferenceDao(database, "sidebar_preferences")
+        );
+        this.bossBarPreferences = new BossBarPreferenceService(
+                this, captureService, new PlayerVisibilityPreferenceDao(database, "bossbar_preferences")
+        );
 
         database.initialized().whenComplete((ignored, failure) -> {
             if (failure == null) {
@@ -652,6 +707,9 @@ public final class SiegePlugin extends JavaPlugin {
         minecartArenaProtection.rebind(context.world().getName(), context.bounds());
         minecartSweeper.rebind(context.world().getName());
         minecartCooldownService.clearAll();
+        if (mobilityCooldowns != null) {
+            mobilityCooldowns.clearAll();
+        }
         getServer().getOnlinePlayers().forEach(player -> player.setCooldown(org.bukkit.Material.TNT_MINECART, 0));
         minecartDamageListener.rebind(captureService.banner(), context.map().captureRadius());
         placedBlockTracker.clearAll();

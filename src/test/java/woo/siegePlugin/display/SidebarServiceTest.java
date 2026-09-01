@@ -32,7 +32,8 @@ class SidebarServiceTest {
                 "Target: 10000",
                 "Banner Control: Red Team (3)",
                 "ATK Banner Points: 40",
-                "DEF Banner Points: 20"
+                "DEF Banner Points: 20",
+                "Server IP: Coming soon"
         ), plainLines(snapshot, config));
     }
 
@@ -58,7 +59,8 @@ class SidebarServiceTest {
         assertEquals("Map: Preparing…", lines.getFirst());
         assertEquals("Target: —", lines.get(5));
         assertEquals("Banner Control: None (0)", lines.get(6));
-        assertEquals(9, lines.size());
+        assertEquals("Server IP: Coming soon", lines.getLast());
+        assertEquals(10, lines.size());
     }
 
     @Test

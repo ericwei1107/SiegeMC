@@ -30,7 +30,7 @@ SiegePlugin.onEnable()
      TeamDisplayService, SidebarService
   -> ActiveRoundProvider, RoundRoster, ActiveCombatEligibility (RoundActivityStatus)
   -> CaptureService (bootstrap-only banner/settings from config.yml)
-  -> CombatLogAdapter (hard dependency), TeamSwitchService
+  -> CombatTagAdapter (hard dependency), TeamSwitchService
   -> initializePlayerStateTransitions()  [constructs SiegeDatabase, KitService,
      KitEditorListener, PlayerStateTransitionService]
   -> ScoringService, MinecartCooldownService, CurrencyService
@@ -77,8 +77,8 @@ on every round activation.
 
 | Feature | Visible? | Entry point | Config | Persistence | Authorizing doc | Status |
 |---|---|---|---|---|---|---|
-| CombatLog integration | internal | `combat/CombatLogAdapter.java` | — | — | Stage 4.4 §4.4d, brief's D-12 | implemented via reflection against the owner-installed jar; hard startup dependency |
-| Combat-tagged interaction blocking | player-facing | `combat/CombatTaggedInteractionListener.java` | — | — | Stage 4.4 §4.4d | implemented |
+| CombatTag integration | internal | `combat/CombatTagAdapter.java` | — | — | Stage 4.4 §4.4d | implemented via reflection against CombatTag 2.x's active-tag map; hard startup dependency |
+| Combat-tagged restrictions | player-facing | `combat/CombatTaggedCommandListener.java`, `CombatTaggedInteractionListener.java`, `PotionStorageListener.java` | — | — | Stage 4.4 §4.4d | blocks every player command, potion storage, fence gates, team switching, and lobby/spectator escapes while CombatTag reports an active tag |
 | Lobby/siege/spectator state machine | internal | `state/PlayerStateTransitionService.java` (790 LOC) | `lobby.world`, `lobby.spawn.*` | `players.stored_inventory` (async, off tick thread) | Stage 4.4 §4.4e | implemented: `enterSiegeFromLobby`, `returnToLobby`, `enterSpectator`/`exitSpectator`, `rejoinSpectator`, `forceRoundLobby`, `startFreshRound`/`startFreshSpectatorRound`, `reapplyKitAfterRespawn`, generation-tokened transitions to prevent overlapping async operations racing each other |
 | Spectator residency handler | internal | `state/SpectatorResidencyHandler.java` | — | Towny | Stage 4.4 §4.4l | implemented |
 | Lobby settings validation | internal | `state/LobbySettings.java` | `lobby.world/spawn` | — | Stage 4.4 §4.4e | implemented |
@@ -140,6 +140,8 @@ on every round activation.
 | Balanced randomized team launch (odd-player fairness) | internal | `round/RosterBalancer.java` | — | `match_roster` (PLANNED then BATTLEFIELD) | 1.1 "Team assignment and launch" | implemented, unit-tested |
 | Durable roster as sole eligibility authority | internal | `round/RoundRoster.java`, `round/ActiveCombatEligibility.java` | — | `match_roster.presence` | 1.1 "shared active-combat eligibility policy" | implemented — gates deaths, damage MVP, capture, shop delivery, potion access, placed blocks, minecart placement |
 | `/siege join` (phase-explicit) | player | `RotationCoordinator.requestJoin/joinActiveRound` | — | `intermission_queue` or `match_roster` | 1.1 "Make /siege join phase-explicit" | implemented |
+| Lobby Join Siege Compass | player | `lobby/LobbyJoinItemListener.java` | — | — | owner decision | gives lobby players a hotbar Compass that invokes the normal `/siege join` path |
+| First-join tutorial | player | `lobby/TutorialBookListener.java` | sample text in code | Bukkit first-join state | owner decision | opens an ephemeral sample written book once; it is not added to inventory |
 | `/siege lobby` (round-aware) | player | `RotationCoordinator.goToLobby` | — | `match_roster.presence` | 1.1 doc | implemented |
 | `/siege admin rotation status/validate/retry` | admin | `command/SiegeAdminCommand.rotation` | — | reads `rotation_state` | 1.1 "Operator recovery commands" | implemented |
 | Durable generated-world cleanup with backoff | internal | `RotationCoordinator.enrollAndDiscard/attemptCleanup`, `WorldCleanupDao` | `rotation.preparation-timeout-seconds` (unrelated to backoff cap, which is fixed at 5 min) | `generated_world_cleanup` | 1.1 "Keep the existing copy/delete safeguards" | implemented |
@@ -253,7 +255,7 @@ Depth actually applied during this audit, by package (155 classes total):
 | config | 1 | full read |
 | persistence | 13 | full read |
 | team | 7 | full read |
-| combat | 3 | full read (`CombatLogAdapter`, `CombatTagStatus`, `CombatTaggedInteractionListener`) |
+| combat | 4 | full read (`CombatTagAdapter`, `CombatTagStatus`, `CombatTaggedCommandListener`, `CombatTaggedInteractionListener`) |
 | state | 8 | full read of `PlayerStateTransitionService` (largest), `LobbySettings`; targeted read of `SpectatorResidencyHandler`, event records |
 | capture | 11 | full read |
 | score | 3 | full read |

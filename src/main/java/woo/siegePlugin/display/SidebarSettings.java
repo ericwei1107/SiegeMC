@@ -12,10 +12,12 @@ import java.util.Objects;
 public final class SidebarSettings {
 
     private final String title;
+    private final String serverIp;
     private final Map<Team, String> displayNames;
 
-    private SidebarSettings(String title, Map<Team, String> displayNames) {
+    private SidebarSettings(String title, String serverIp, Map<Team, String> displayNames) {
         this.title = title;
+        this.serverIp = serverIp;
         this.displayNames = new EnumMap<>(displayNames);
     }
 
@@ -29,6 +31,7 @@ public final class SidebarSettings {
         }
         return new SidebarSettings(
                 config.getString("sidebar.title", "Siege Status"),
+                config.getString("sidebar.server-ip", "Coming soon"),
                 displayNames
         );
     }
@@ -38,6 +41,10 @@ public final class SidebarSettings {
         String title = config.getString("sidebar.title");
         if (title != null && title.isBlank()) {
             problems.add("sidebar.title must not be empty");
+        }
+        String serverIp = config.getString("sidebar.server-ip");
+        if (serverIp != null && serverIp.isBlank()) {
+            problems.add("sidebar.server-ip must not be empty");
         }
 
         for (Team team : Team.values()) {
@@ -51,6 +58,10 @@ public final class SidebarSettings {
 
     public String title() {
         return title;
+    }
+
+    public String serverIp() {
+        return serverIp;
     }
 
     public String displayName(Team team) {

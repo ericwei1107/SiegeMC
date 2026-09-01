@@ -37,6 +37,10 @@ final class CaptureBossBars {
         existing.color(color);
     }
 
+    boolean isShowing(Player player) {
+        return bars.containsKey(player.getUniqueId());
+    }
+
     void remove(Player player) {
         BossBar removed = bars.remove(player.getUniqueId());
         if (removed != null) {

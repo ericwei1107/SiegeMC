@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Rebuilds the plugin jar, deploy-managed base configuration, maps manifest,
-# and seeds the five approved clean map templates when missing. Never touches runtime-overrides.yml,
+# Rebuilds the plugin jar, deploys all local plugin jars, manages public server access,
+# deploy-managed base configuration, maps manifest, and seeds the five approved clean map templates when missing. Never touches runtime-overrides.yml,
 # runtime-map-overrides.yml, potion-storages.yml, siege.db, or generated active
 # worlds — those stay VPS-managed.
 #
@@ -40,7 +40,8 @@ for arg in "$@"; do
     esac
 done
 
-LOCAL_JAR="$HOME/mcserver/dev/plugins/siegemc-1.0-SNAPSHOT.jar"
+LOCAL_PLUGINS="$HOME/mcserver/dev/plugins"
+LOCAL_JAR="$LOCAL_PLUGINS/siegemc-1.0-SNAPSHOT.jar"
 LOCAL_CONFIG="$PROJECT_ROOT/src/main/resources/config.yml"
 LOCAL_MAPS="$PROJECT_ROOT/src/main/resources/maps.yml"
 # This local asset source is intentionally outside the Git repository: the five
@@ -66,12 +67,22 @@ fi
 echo "==> Building a fresh jar (mvn package)"
 (cd "$PROJECT_ROOT" && "$MVN" -o -q package)
 
+if [[ ! -d "$LOCAL_PLUGINS" ]]; then
+    echo "Missing expected local directory: $LOCAL_PLUGINS" >&2
+    exit 1
+fi
 for f in "$LOCAL_JAR" "$LOCAL_CONFIG" "$LOCAL_MAPS"; do
     if [[ ! -f "$f" ]]; then
         echo "Missing expected local file: $f" >&2
         exit 1
     fi
 done
+shopt -s nullglob
+LOCAL_JARS=("$LOCAL_PLUGINS"/*.jar)
+if [[ ${#LOCAL_JARS[@]} -eq 0 ]]; then
+    echo "No plugin jars found in: $LOCAL_PLUGINS" >&2
+    exit 1
+fi
 for map_id in "${MAP_TEMPLATE_IDS[@]}"; do
     template_dir="$MAP_TEMPLATE_SOURCE/$map_id"
     if [[ ! -d "$template_dir" || ! -f "$template_dir/level.dat" ]]; then
@@ -88,9 +99,11 @@ if $DRY_RUN; then
 fi
 
 echo "==> Staging files on the VPS ($STAGE)"
-ssh "$VPS_SSH_TARGET" "mkdir -p '$STAGE/templates'"
+ssh "$VPS_SSH_TARGET" "mkdir -p '$STAGE/plugins' '$STAGE/templates'"
 
-rsync "${RSYNC_FLAGS[@]}" "$LOCAL_JAR" "$VPS_SSH_TARGET:$STAGE/siegemc-1.0-SNAPSHOT.jar"
+for local_jar in "${LOCAL_JARS[@]}"; do
+    rsync "${RSYNC_FLAGS[@]}" "$local_jar" "$VPS_SSH_TARGET:$STAGE/plugins/$(basename "$local_jar")"
+done
 rsync "${RSYNC_FLAGS[@]}" "$LOCAL_CONFIG" "$VPS_SSH_TARGET:$STAGE/config.yml"
 rsync "${RSYNC_FLAGS[@]}" "$LOCAL_MAPS" "$VPS_SSH_TARGET:$STAGE/maps.yml"
 for map_id in "${MAP_TEMPLATE_IDS[@]}"; do
@@ -115,6 +128,7 @@ DEST_SIEGE="\$DEST_PLUGINS/SiegePlugin"
 DEST_TEMPLATE_ROOT="\$DEST_SIEGE/maps/templates"
 RUNTIME_OVERRIDES="\$DEST_SIEGE/runtime-overrides.yml"
 RUNTIME_MAP_OVERRIDES="\$DEST_SIEGE/runtime-map-overrides.yml"
+SERVER_PROPERTIES="$VPS_SERVER_DIR/server.properties"
 
 # Preserve the legacy live default kit exactly once before the source-managed
 # base config replaces it. SiegePlugin reads only kit.default-loadout from this
@@ -131,8 +145,23 @@ if [ ! -e "\$RUNTIME_MAP_OVERRIDES" ] && [ -f "\$DEST_SIEGE/maps.yml" ]; then
     echo "==> Migrated existing live capture coordinates into runtime-map-overrides.yml"
 fi
 
+# Keep the public-access setting source-controlled by this deployment without
+# copying unrelated server.properties values such as host-specific settings.
+[ -f "\$SERVER_PROPERTIES" ] || { echo "Missing server.properties: \$SERVER_PROPERTIES" >&2; exit 1; }
+sudo awk '
+    BEGIN { changed = 0 }
+    /^white-list=/ { print "white-list=false"; changed = 1; next }
+    { print }
+    END { if (!changed) print "white-list=false" }
+' "\$SERVER_PROPERTIES" > "$STAGE/server.properties"
 sudo install -o "$VPS_REMOTE_USER" -g "$VPS_REMOTE_USER" -m 644 \
-    "$STAGE/siegemc-1.0-SNAPSHOT.jar" "\$DEST_PLUGINS/siegemc-1.0-SNAPSHOT.jar"
+    "$STAGE/server.properties" "\$SERVER_PROPERTIES"
+
+for STAGED_JAR in "$STAGE"/plugins/*.jar; do
+    [ -f "$STAGED_JAR" ] || { echo "No staged plugin jars found" >&2; exit 1; }
+    sudo install -o "$VPS_REMOTE_USER" -g "$VPS_REMOTE_USER" -m 644 \
+        "$STAGED_JAR" "\$DEST_PLUGINS/\$(basename "$STAGED_JAR")"
+done
 sudo install -o "$VPS_REMOTE_USER" -g "$VPS_REMOTE_USER" -m 644 \
     "$STAGE/config.yml" "\$DEST_SIEGE/config.yml"
 sudo install -o "$VPS_REMOTE_USER" -g "$VPS_REMOTE_USER" -m 644 \

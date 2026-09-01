@@ -210,6 +210,27 @@ public final class SiegeDatabase implements AutoCloseable {
                         )
                         """);
                 statement.execute("""
+                        CREATE TABLE IF NOT EXISTS player_titles (
+                            player_uuid TEXT PRIMARY KEY,
+                            title TEXT NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS sidebar_preferences (
+                            player_uuid TEXT PRIMARY KEY,
+                            visible INTEGER NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS bossbar_preferences (
+                            player_uuid TEXT PRIMARY KEY,
+                            visible INTEGER NOT NULL,
+                            updated_at INTEGER NOT NULL
+                        )
+                        """);
+                statement.execute("""
                         CREATE TABLE IF NOT EXISTS player_balances (
                             player_uuid TEXT PRIMARY KEY,
                             balance INTEGER NOT NULL DEFAULT 0,

@@ -19,14 +19,19 @@ import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 import org.bukkit.inventory.Inventory;
+import woo.siegePlugin.combat.CombatTagStatus;
+
+import java.util.Objects;
 
 /** Prevents deposits and concurrent access while retaining ordinary chest withdrawal behavior. */
 public final class PotionStorageListener implements Listener {
 
     private final PotionStorageService storageService;
+    private final CombatTagStatus combatTags;
 
-    public PotionStorageListener(PotionStorageService storageService) {
-        this.storageService = storageService;
+    public PotionStorageListener(PotionStorageService storageService, CombatTagStatus combatTags) {
+        this.storageService = Objects.requireNonNull(storageService, "storageService");
+        this.combatTags = Objects.requireNonNull(combatTags, "combatTags");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -36,6 +41,11 @@ public final class PotionStorageListener implements Listener {
         }
         PotionStorage storage = storageService.find(event.getInventory()).orElse(null);
         if (storage == null) {
+            return;
+        }
+        if (blocksPotionStorage(combatTags.isInCombat(player))) {
+            event.setCancelled(true);
+            player.sendMessage("§cYou cannot use potion storage while in combat.");
             return;
         }
 
@@ -73,6 +83,10 @@ public final class PotionStorageListener implements Listener {
             event.setCancelled(true);
             return;
         }
+        if (blocksPotionStorage(combatTags.isInCombat(player))) {
+            denyActiveStorageAccess(player, event);
+            return;
+        }
 
         boolean clickedTop = event.getRawSlot() >= 0 && event.getRawSlot() < topInventory.getSize();
         if (clickedTop) {
@@ -94,8 +108,15 @@ public final class PotionStorageListener implements Listener {
         if (storage == null) {
             return;
         }
-        if (!(event.getWhoClicked() instanceof Player player) || !storageService.isHolder(player, storage)
-                || event.getRawSlots().stream().anyMatch(slot -> slot < event.getView().getTopInventory().getSize())) {
+        if (!(event.getWhoClicked() instanceof Player player) || !storageService.isHolder(player, storage)) {
+            event.setCancelled(true);
+            return;
+        }
+        if (blocksPotionStorage(combatTags.isInCombat(player))) {
+            denyActiveStorageAccess(player, event);
+            return;
+        }
+        if (event.getRawSlots().stream().anyMatch(slot -> slot < event.getView().getTopInventory().getSize())) {
             event.setCancelled(true);
         }
     }
@@ -152,5 +173,16 @@ public final class PotionStorageListener implements Listener {
                     PICKUP_FROM_BUNDLE, PICKUP_ALL_INTO_BUNDLE, PICKUP_SOME_INTO_BUNDLE -> true;
             default -> false;
         };
+    }
+
+    static boolean blocksPotionStorage(boolean combatTagged) {
+        return combatTagged;
+    }
+
+    private void denyActiveStorageAccess(Player player, org.bukkit.event.Cancellable event) {
+        event.setCancelled(true);
+        storageService.release(player);
+        player.closeInventory();
+        player.sendMessage("§cYou cannot use potion storage while in combat.");
     }
 }

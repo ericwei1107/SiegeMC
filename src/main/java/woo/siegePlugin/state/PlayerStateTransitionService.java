@@ -42,6 +42,8 @@ public final class PlayerStateTransitionService {
     private final AtomicBoolean active = new AtomicBoolean(true);
     private Consumer<Player> spectatorStateChangeHandler = ignored -> {
     };
+    private Consumer<Player> lobbyItemHandler = ignored -> {
+    };
     private java.util.function.BooleanSupplier roundActive = () -> true;
     private java.util.function.BiConsumer<Player, RoundRole> activeRoleHandler = (player, role) -> {
     };
@@ -130,6 +132,11 @@ public final class PlayerStateTransitionService {
 
     public void setSpectatorStateChangeHandler(Consumer<Player> handler) {
         this.spectatorStateChangeHandler = Objects.requireNonNull(handler, "handler");
+    }
+
+    /** Called after the player's inventory has been cleared and they are in the lobby. */
+    public void setLobbyItemHandler(Consumer<Player> handler) {
+        this.lobbyItemHandler = Objects.requireNonNull(handler, "handler");
     }
 
     public void setRoundActiveSupplier(java.util.function.BooleanSupplier supplier) {
@@ -256,6 +263,7 @@ public final class PlayerStateTransitionService {
         }
         contexts.put(player.getUniqueId(), PlayerContext.LOBBY);
         spectatorStateChangeHandler.accept(player);
+        lobbyItemHandler.accept(player);
         return true;
     }
 
@@ -385,6 +393,7 @@ public final class PlayerStateTransitionService {
         contexts.put(player.getUniqueId(), PlayerContext.LOBBY);
         clearPending(player, operationVersion);
         spectatorStateChangeHandler.accept(player);
+        lobbyItemHandler.accept(player);
         // A voluntary return: the roster keeps them, but no longer as present.
         lobbyReturnHandler.accept(player.getUniqueId());
         player.sendMessage("You are now in the lobby. Use /siege join to return to the battle.");

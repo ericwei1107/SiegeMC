@@ -30,9 +30,9 @@ class CanonicalConfigTest {
         assertEquals("teamBlue_", config.getString("teams.blue.town"));
         assertEquals("SpectatorTown", config.getString("spectator.town"));
         assertEquals("lobby", config.getString("lobby.world"));
-        assertEquals(16.0D, config.getDouble("lobby.spawn.x"));
-        assertEquals(67.0D, config.getDouble("lobby.spawn.y"));
-        assertEquals(-48.0D, config.getDouble("lobby.spawn.z"));
+        assertEquals(1.0D, config.getDouble("lobby.spawn.x"));
+        assertEquals(4.0D, config.getDouble("lobby.spawn.y"));
+        assertEquals(0.0D, config.getDouble("lobby.spawn.z"));
 
         CaptureSettings capture = CaptureSettings.fromConfig(config);
         assertEquals(Duration.ofSeconds(420), capture.sessionDuration());
@@ -140,11 +140,11 @@ class CanonicalConfigTest {
     }
 
     @Test
-    void combatLogIsAHardDependency() {
+    void combatTagIsAHardDependency() {
         YamlConfiguration pluginDescription = load("src/main/resources/plugin.yml");
 
         assertEquals(
-                List.of("Towny", "CombatLog"),
+                List.of("Towny", "CombatTag"),
                 pluginDescription.getStringList("depend")
         );
         // Load-order hint only, not a hard dependency: SiegePlugin must still

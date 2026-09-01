@@ -5,7 +5,7 @@ main: woo.siegePlugin.SiegePlugin
 paper-plugin-loader: woo.siegePlugin.SiegePluginLoader
 api-version: '1.21.11'
 load: POSTWORLD
-depend: [Towny, CombatLog]
+depend: [Towny, CombatTag]
 # Not a hard dependency: SiegePlugin's own map rotation never needs
 # Multiverse-Core to be installed. This is purely a load-order hint so that
 # when it IS present, it enables (and loads its configured worlds, e.g. a
@@ -52,6 +52,12 @@ permissions:
     default: true
   siege.lobby:
     description: Return to the lobby outside combat and capture sessions
+    default: true
+  siege.sidebar:
+    description: Toggle the Siege status sidebar
+    default: true
+  siege.bossbar:
+    description: Toggle banner capture boss bars
     default: true
   siege.admin:
     description: Use siege administration commands

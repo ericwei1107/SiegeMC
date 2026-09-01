@@ -15,6 +15,9 @@ import org.bukkit.scoreboard.Scoreboard;
 import woo.siegePlugin.team.Team;
 
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Renders shared siege state onto every player's personal scoreboard. Later
@@ -28,6 +31,7 @@ public final class SidebarService {
     private final TeamDisplayService teamDisplayService;
     private final SidebarSettings settings;
     private final TeamIdentityColors identityColors;
+    private final Map<UUID, Boolean> visibility = new HashMap<>();
     private SidebarSnapshot snapshot = SidebarSnapshot.initial();
 
     public SidebarService(
@@ -43,7 +47,24 @@ public final class SidebarService {
     }
 
     public void initializePlayer(Player player) {
+        if (!isVisible(player.getUniqueId())) {
+            hide(player);
+            return;
+        }
         initializePlayer(player, buildLines(snapshot, settings, identityColors));
+    }
+
+    public void setVisible(Player player, boolean visible) {
+        visibility.put(player.getUniqueId(), visible);
+        if (visible) {
+            initializePlayer(player);
+        } else {
+            hide(player);
+        }
+    }
+
+    public boolean isVisible(UUID playerId) {
+        return visibility.getOrDefault(playerId, true);
     }
 
     private void initializePlayer(Player player, List<Component> lines) {
@@ -90,9 +111,8 @@ public final class SidebarService {
             return;
         }
         snapshot = updated;
-        List<Component> lines = buildLines(snapshot, settings, identityColors);
         for (Player player : server.getOnlinePlayers()) {
-            initializePlayer(player, lines);
+            initializePlayer(player);
         }
     }
 
@@ -133,7 +153,8 @@ public final class SidebarService {
                 )),
                 label("Banner Control: ").append(bannerControl),
                 label("ATK Banner Points: ").append(Component.text(state.redSessionPoints(), identityColors.get(Team.RED))),
-                label("DEF Banner Points: ").append(Component.text(state.blueSessionPoints(), identityColors.get(Team.BLUE)))
+                label("DEF Banner Points: ").append(Component.text(state.blueSessionPoints(), identityColors.get(Team.BLUE))),
+                label("Server IP: ").append(Component.text(settings.serverIp(), NamedTextColor.WHITE))
         );
     }
 
@@ -143,5 +164,12 @@ public final class SidebarService {
 
     private static Component label(String value) {
         return Component.text(value, NamedTextColor.GOLD);
+    }
+
+    private void hide(Player player) {
+        Objective objective = teamDisplayService.getOrCreateScoreboard(player).getObjective(OBJECTIVE_NAME);
+        if (objective != null) {
+            objective.unregister();
+        }
     }
 }

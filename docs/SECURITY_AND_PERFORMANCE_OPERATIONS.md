@@ -17,7 +17,7 @@ Before every public update:
 2. Obtain every changed JAR directly from its official publisher, verify its published checksum/signature when available, and check the publisher's security advisories and Paper compatibility notes.
 3. Run the Maven test suite and package the plugin. Do not publish with test failures or unreviewed dependency changes.
 4. Use LuckPerms to prove that a normal player lacks all staff nodes, especially `siege.admin`, `siege.minecart.cooldown.bypass`, Towny administration, Vulcan administration, and LuckPerms administration.
-5. Confirm `online-mode=true`, `enable-rcon=false`, `enable-query=false`, `white-list=true`, and that the VPS firewall exposes only the Minecraft port and restricted management access.
+5. Confirm `online-mode=true`, `enable-rcon=false`, `enable-query=false`, `white-list=false`, and that the VPS firewall exposes only the Minecraft port and restricted management access. SiegeMC is intentionally public; use permissions, moderation, and backups accordingly.
 
 Never store passwords, webhooks, SSH keys, RCON passwords, or database credentials in this repository or paste them into audit output.
 
@@ -33,6 +33,6 @@ Use a staging copy of the server, not the live map.
 
 ## Ongoing third-party review
 
-Installed plugins may include ClearLag, CombatLog, LuckPerms, Towny, TownyChat, Vulcan, Multiverse-Core, PacketEvents, and SiegePlugin. Multiverse-Core is optional operator tooling and does not own SiegePlugin rotation. Treat each JAR as a separate supply-chain component: use vendor release notes and security advisories, update only after staging validation, and remove plugins that are unsupported or no longer needed.
+Installed plugins may include ClearLag, CombatTag, LuckPerms, Towny, TownyChat, Vulcan, Multiverse-Core, PacketEvents, and SiegePlugin. Multiverse-Core is optional operator tooling and does not own SiegePlugin rotation. Treat each JAR as a separate supply-chain component: use vendor release notes and security advisories, update only after staging validation, and remove plugins that are unsupported or no longer needed.
 
 The custom plugin source has permission checks at the command boundary, prepared SQL parameters for player data, and no network/webhook endpoints. Continue to test authorization and resource-abuse paths after every gameplay feature change.

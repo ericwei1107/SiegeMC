@@ -15,6 +15,9 @@ import woo.siegePlugin.team.TownyAdapter;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.Duration;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +37,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     private final TownyAdapter townyAdapter;
     private final SidebarService sidebarService;
     private CaptureBanner banner;
+    private final CaptureBeacon beacon = new CaptureBeacon();
     private final CaptureBossBars bossBars;
     private final CaptureControl control = new CaptureControl();
     private final Map<UUID, CaptureSession> sessions = new LinkedHashMap<>();
@@ -47,6 +51,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
      * coordinates could accrue banner control.
      */
     private java.util.function.Predicate<Player> battlefieldFighter = player -> true;
+    private java.util.function.Predicate<java.util.UUID> bossBarVisible = playerId -> true;
 
     private BukkitTask task;
     private boolean suspended;
@@ -83,6 +88,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
 
     public void start() {
         banner.ensurePresent();
+        beacon.ensurePresent(banner.location());
         publishControl();
         this.task = plugin.getServer().getScheduler().runTaskTimer(
                 plugin,
@@ -172,6 +178,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         settings = new CaptureSettings(radiusBlocks, settings.sessionDuration());
         suspended = false;
         banner.ensurePresent();
+        beacon.ensurePresent(banner.location());
     }
 
     /**
@@ -188,6 +195,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     public void resumeAfterReset() {
         suspended = false;
         banner.ensurePresent();
+        beacon.ensurePresent(banner.location());
     }
 
     /** Moves the capture point for the active map. Progress and control are tied to
@@ -197,6 +205,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         resetControl();
         banner.moveTo(destination);
         banner.ensurePresent();
+        beacon.ensurePresent(banner.location());
 
     }
 
@@ -210,6 +219,7 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
             return;
         }
         banner.ensurePresent();
+        beacon.ensurePresent(banner.location());
         Location bannerLocation = banner.location();
         Instant now = clock.instant();
         evaluateExistingSessions(bannerLocation, now);
@@ -285,16 +295,37 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
     }
 
     private void showProgress(Player player, CaptureSession session, Instant now) {
+        if (!bossBarVisible.test(player.getUniqueId())) {
+            bossBars.remove(player);
+            return;
+        }
         Component name = Component.text(
-                "Capturing banner — " + session.remaining(now).toSeconds() + "s",
-                NamedTextColor.WHITE
+                "Banner Cap Timer: " + formatRemainingMinutes(session.remaining(now)) + " minutes",
+                NamedTextColor.YELLOW
         );
-        bossBars.update(player, name, session.progress(now), bossBarColor(session.side()));
+        bossBars.update(player, name, session.progress(now), BossBar.Color.YELLOW);
+    }
+
+    static String formatRemainingMinutes(Duration remaining) {
+        BigDecimal minutes = BigDecimal.valueOf(Math.max(0L, remaining.toMillis()))
+                .divide(BigDecimal.valueOf(60_000L), 1, RoundingMode.HALF_UP);
+        return minutes.toPlainString();
     }
 
     /** Binds the shared active-combat eligibility policy. */
     public void setBattlefieldFighterCheck(java.util.function.Predicate<Player> check) {
         this.battlefieldFighter = java.util.Objects.requireNonNull(check, "check");
+    }
+
+    /** Applies player-owned boss-bar visibility immediately to active capture sessions. */
+    public void setBossBarVisible(java.util.function.Predicate<java.util.UUID> check) {
+        this.bossBarVisible = java.util.Objects.requireNonNull(check, "check");
+        for (UUID playerId : List.copyOf(sessions.keySet())) {
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player != null && !bossBarVisible.test(playerId)) {
+                bossBars.remove(player);
+            }
+        }
     }
 
     private boolean isEligible(Player player, Team team, Location bannerLocation) {
@@ -316,7 +347,4 @@ public final class CaptureService implements CaptureSessionStatus, BannerControl
         sidebarService.updateBannerControl(control.controllingTeam().orElse(null), control.controllerCount());
     }
 
-    private static BossBar.Color bossBarColor(Team team) {
-        return team == Team.RED ? BossBar.Color.RED : BossBar.Color.BLUE;
-    }
 }

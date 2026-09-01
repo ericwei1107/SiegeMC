@@ -19,14 +19,17 @@ This guide covers the current finite-round build. Run it on the disposable devel
    - **Loaded copy** (a throwaway copy is made, checked, then always unloaded): solid non-hazardous spawn footing, passable feet and head space, a supported capture position, and heights inside that world's own build range. Tagged supply chests are discovered from the template and do not veto rotation.
 
    Because it copies each template, `validate all` takes a moment and reports asynchronously. A map that does not validate is skipped when rotation picks candidates, so fix every problem before relying on it as a fallback.
-5. Confirm the plugin depends only on Towny and CombatLog; Multiverse is not a lifecycle owner.
-6. Check the startup log for a warning listing potion supplies still recorded against a literal world name. Those legacy records stay in `potion-storages.yml` but are inactive; re-register them per map.
-7. Check the startup log for a warning listing generated `siege-active-*` folders with no durable record. These are reported for manual review and are never deleted automatically.
-8. On the very first start after upgrading, confirm the log says the pre-rotation endless match was archived and that rotation began at intermission. There must be no transitional round on the old boot world, and `eternal-1` must show status `LEGACY` with its score ledger intact. With no enabled map, the server must sit in lobby recovery rather than starting anything.
+5. Confirm the plugin depends only on Towny and CombatTag; Multiverse is not a lifecycle owner.
+6. Tag a fighter, then try `/siege`, an unrelated slash command, their team potion storage, a fence gate, `/siege lobby`, `/siege spectate`, and `/siege switch`. Every action must be denied until CombatTag expires; ordinary combat movement remains available.
+7. Check the startup log for a warning listing potion supplies still recorded against a literal world name. Those legacy records stay in `potion-storages.yml` but are inactive; re-register them per map.
+8. Check the startup log for a warning listing generated `siege-active-*` folders with no durable record. These are reported for manual review and are never deleted automatically.
+9. On the very first start after upgrading, confirm the log says the pre-rotation endless match was archived and that rotation began at intermission. There must be no transitional round on the old boot world, and `eternal-1` must show status `LEGACY` with its score ledger intact. With no enabled map, the server must sit in lobby recovery rather than starting anything.
 
 ## Normal winner-to-map flow
 
 - [ ] Use four fighters split across Red/Blue and one spectator. Confirm unrelated lobby players are not auto-assigned merely by joining the server.
+- [ ] Confirm a player in the lobby has a `Join Siege` Compass in hotbar slot 4. Right-clicking it must follow the same active-round or queue behavior as `/siege join`.
+- [ ] Join with a brand-new account. A sample `SiegeMC Tutorial` book must open once after joining and must not remain in inventory; reconnecting must not reopen it.
 - [ ] Opt fighters in with `/siege join`. Towny membership is only the internal combat-team container. Confirm `/siege join` is phase-explicit: during `ACTIVE` it puts you straight into the smaller battlefield side with a fresh kit; during intermission or recovery it queues you and moves you to the lobby; during the brief changeover it is rejected with a temporary-state message rather than doing something surprising.
 - [ ] Raise one side through `scoring.winning-score` (default 10,000). Test an overshoot, such as 9,950 + 150 = 10,100; the full 10,100 must persist.
 - [ ] The first crossing write ends the match exactly once. Later queued score awards do not change totals or create ledger rows.
@@ -37,6 +40,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
 - [ ] Fighters and spectators are Adventure in the lobby. Spectators are also evacuated and are not Spectator-mode in the lobby.
 - [ ] The next clean map activates as soon as it is ready and all online queued players are safely in the lobby.
 - [ ] Fighters are shuffled and balanced within one player, moved through Towny, teleported to map spawns, set to Survival, and receive only their curated/default fresh kit. Prior inventory and purchases do not transfer; durable currency and kit choices do.
+- [ ] Kill one Red fighter and one Blue fighter during an active round. Each respawns at that map's current spawn for their own team with their kit reapplied; lobby players and spectators retain their normal respawn behavior.
 - [ ] Over several rounds with an odd number of fighters, confirm the extra player does not always land on the same team.
 - [ ] Force one player's launch to fail (for example, block their spawn teleport). Confirm everyone else still launches, the failed player is returned to the lobby, told to use `/siege join`, and stays queued; the published teams still differ by at most one, and the old world is reported as quarantined rather than failing the round.
 - [ ] The queued spectator retains spectator residency, enters the active map in Spectator mode, and receives no team.
