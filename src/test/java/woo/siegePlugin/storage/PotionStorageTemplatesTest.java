@@ -25,4 +25,11 @@ class PotionStorageTemplatesTest {
                 PotionStorageLabels.specialMarkerText(Material.EXPERIENCE_BOTTLE)
         );
     }
+
+    @Test
+    void foodAndXpSuppliesRefillEachSlotAsAFullStack() {
+        assertEquals(64, PotionStorageTemplates.refillAmount(Material.BAKED_POTATO));
+        assertEquals(64, PotionStorageTemplates.refillAmount(Material.EXPERIENCE_BOTTLE));
+        assertEquals(1, PotionStorageTemplates.refillAmount(Material.SPLASH_POTION));
+    }
 }

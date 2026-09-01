@@ -325,9 +325,7 @@ public final class PotionStorageService {
         ItemStack[] contents = new ItemStack[inventory.getSize()];
         for (int slot = 0; slot < contents.length; slot++) {
             ItemStack supply = storage.potion();
-            if (supply.getType() == org.bukkit.Material.BAKED_POTATO) {
-                supply.setAmount(supply.getMaxStackSize());
-            }
+            supply.setAmount(PotionStorageTemplates.refillAmount(supply.getType()));
             contents[slot] = supply;
         }
         inventory.setContents(contents);

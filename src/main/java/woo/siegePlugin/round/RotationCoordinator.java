@@ -10,6 +10,7 @@ import woo.siegePlugin.map.ActiveMapWorld;
 import woo.siegePlugin.map.MapBounds;
 import woo.siegePlugin.map.MapManifest;
 import woo.siegePlugin.map.MapPoint;
+import woo.siegePlugin.map.MapValidator;
 import woo.siegePlugin.map.SiegeMap;
 import woo.siegePlugin.persistence.MatchDefinition;
 import woo.siegePlugin.persistence.MatchRecord;
@@ -1129,10 +1130,11 @@ public final class RotationCoordinator {
     private static void appendReport(List<String> report, SiegeMap map, List<String> problems) {
         if (problems.isEmpty()) {
             report.add(map.id() + " (" + map.displayName() + "): valid");
-            return;
+        } else {
+            report.add(map.id() + " (" + map.displayName() + "): " + problems.size() + " problem(s)");
+            problems.forEach(problem -> report.add("  - " + problem));
         }
-        report.add(map.id() + " (" + map.displayName() + "): " + problems.size() + " problem(s)");
-        problems.forEach(problem -> report.add("  - " + problem));
+        MapValidator.baseClaimWarnings(map).forEach(warning -> report.add("  - warning: " + warning));
     }
 
     public boolean retry(String requestedMapId) {
@@ -1165,10 +1167,8 @@ public final class RotationCoordinator {
 
     /**
      * Admin override for a round stuck in ACTIVE with no way to end naturally.
-     * Aborts the open match, transfers its roster into the intermission queue,
-     * and lands in INTERMISSION with an empty candidate list — nothing is
-     * prepared automatically. An admin must follow up with {@link #retry}
-     * (rotation force/retry) to pick the next map.
+     * It follows the same automatic intermission and map-preparation path as a
+     * normally completed siege, without inventing a winner.
      */
     public boolean endActive() {
         if (rounds.phase() != RoundPhase.ACTIVE) {
@@ -1197,21 +1197,29 @@ public final class RotationCoordinator {
                         clearRoundBindings();
                         rounds.restore(RoundPhase.INTERMISSION, null);
                         evacuateEveryone();
-                        scheduler.stopTicking();
                         preparationDeadline = null;
                         RotationState next = new RotationState(
                                 RoundPhase.INTERMISSION, state.generation(), state.revision(),
                                 null, null, null, state.currentMapId(), null, null,
-                                null, List.of()
+                                scheduler.now().plus(settings.forcedLobbyDelay()), List.of()
                         );
-                        writeState(next, saved -> audience.broadcast(Component.text(
-                                "The siege was ended by an admin. Rotation is paused in intermission — "
-                                        + "an admin must run rotation force <map> to pick the next map.",
-                                NamedTextColor.RED
-                        )));
+                        durableState = next;
+                        beginPreparation(null, "The siege was ended by an admin. Preparing the next map.");
                     }));
         }));
         return true;
+    }
+
+    /** Returns the authoritative active-round team for an in-game test command. */
+    public Optional<Team> activeFighterTeam(UUID playerId) {
+        if (rounds.phase() != RoundPhase.ACTIVE) {
+            return Optional.empty();
+        }
+        RoundRoster.Membership membership = roster.presenceOf(playerId).orElse(null);
+        if (membership == null || membership.role() != RoundRole.PLAYER || membership.team() == null) {
+            return Optional.empty();
+        }
+        return Optional.of(membership.team());
     }
 
     // ----------------------------------------------------------------- joins

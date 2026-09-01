@@ -5,6 +5,7 @@ import org.bukkit.entity.Player;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import woo.siegePlugin.team.Team;
 
 /**
  * The single rule deciding whether a player's activity counts toward the round.
@@ -37,9 +38,14 @@ public final class ActiveCombatEligibility {
 
     /** True when this player's combat currently counts as a fighter. */
     public boolean isEligibleFighter(Player player) {
+        return fighterTeam(player).isPresent();
+    }
+
+    /** The authoritative active-round team for a battlefield fighter. */
+    public Optional<Team> fighterTeam(Player player) {
         return entryFor(player)
                 .filter(entry -> entry.role() == RoundRole.PLAYER)
-                .isPresent();
+                .map(RoundRoster.Membership::team);
     }
 
     /** True when this player is present on the battlefield in any role. */

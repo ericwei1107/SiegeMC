@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import woo.siegePlugin.team.Team;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -79,6 +80,41 @@ class MapManifestStrictParsingTest {
         Path file = write("maps:\n  kazan:\n    enabled: false\n    display-name: \"Half done\"\n");
         assertTrue(MapManifest.findConfigurationProblems(file.toFile()).isEmpty());
         assertTrue(MapManifest.load(file.toFile()).rotationPool().isEmpty());
+    }
+
+    @Test
+    void teamOwnedBaseClaimsLoadAndCrossTeamOverlapIsRejected() throws Exception {
+        String claims = """
+                    base-claims:
+                      red:
+                        - { chunk-x: -2, chunk-z: 0 }
+                      blue:
+                        - { chunk-x: 1, chunk-z: 0 }
+                """;
+        Path valid = write(complete("kazan") + claims);
+        SiegeMap map = MapManifest.load(valid.toFile()).find("kazan").orElseThrow();
+        assertEquals(1, map.claimsFor(Team.RED).size());
+        assertEquals(1, map.claimsFor(Team.BLUE).size());
+
+        Path overlap = write((complete("kazan") + claims)
+                .replace("chunk-x: 1", "chunk-x: -2"));
+        assertTrue(MapManifest.findConfigurationProblems(overlap.toFile()).getFirst()
+                .contains("assigned to both teams"));
+    }
+
+    @Test
+    void fractionalBaseClaimCoordinatesAreRejectedRatherThanRounded() throws Exception {
+        String claims = """
+                    base-claims:
+                      red:
+                        - { chunk-x: 1.5, chunk-z: 0 }
+                """;
+
+        List<String> problems = MapManifest.findConfigurationProblems(
+                write(complete("kazan") + claims).toFile()
+        );
+
+        assertTrue(problems.getFirst().contains("must be a whole chunk coordinate"), problems.toString());
     }
 
     private Path write(String contents) throws Exception {

@@ -13,6 +13,7 @@ import woo.siegePlugin.map.RuntimeMapOverrides;
 import woo.siegePlugin.map.MapCalibrationService;
 import woo.siegePlugin.round.ActiveRoundContext;
 import woo.siegePlugin.round.RotationCoordinator;
+import woo.siegePlugin.score.ScoringService;
 import woo.siegePlugin.storage.PotionStorage;
 import woo.siegePlugin.storage.PotionStorageService;
 import woo.siegePlugin.storage.PotionStorageTemplates;
@@ -28,7 +29,7 @@ import java.util.logging.Logger;
 public final class SiegeAdminCommand {
 
     public static final String PERMISSION = "siege.admin";
-    private static final List<String> SUBCOMMANDS = List.of("setbanner", "savekit", "supply", "rotation", "map");
+    private static final List<String> SUBCOMMANDS = List.of("setbanner", "savekit", "supply", "rotation", "map", "testscore");
 
     private final JavaPlugin plugin;
     private final CaptureService capture;
@@ -39,6 +40,7 @@ public final class SiegeAdminCommand {
     private final RuntimeKitOverrides runtimeKitOverrides;
     private final RuntimeMapOverrides runtimeMapOverrides;
     private final MapCalibrationService calibration;
+    private final ScoringService scoring;
 
     public SiegeAdminCommand(
             JavaPlugin plugin, CaptureService capture, woo.siegePlugin.score.ScoringService scoring,
@@ -51,7 +53,7 @@ public final class SiegeAdminCommand {
     public SiegeAdminCommand(
             JavaPlugin plugin,
             CaptureService capture,
-            woo.siegePlugin.score.ScoringService ignoredScoring,
+            ScoringService scoring,
             KitService kits,
             Logger logger,
             PotionStorageService storages,
@@ -69,6 +71,7 @@ public final class SiegeAdminCommand {
         this.runtimeKitOverrides = runtimeKitOverrides;
         this.runtimeMapOverrides = runtimeMapOverrides;
         this.calibration = calibration;
+        this.scoring = scoring;
     }
 
     public boolean handle(CommandSender sender, String label, String[] args) {
@@ -86,6 +89,7 @@ public final class SiegeAdminCommand {
             case "supply" -> supply(sender, label, args);
             case "rotation" -> rotation(sender, label, args);
             case "map" -> map(sender, label, args);
+            case "testscore" -> testScore(sender);
             default -> {
                 usage(sender, label);
                 yield true;
@@ -106,6 +110,19 @@ public final class SiegeAdminCommand {
             String prefix = args[2].toLowerCase(Locale.ROOT);
             return List.of("status", "validate", "retry", "force", "end").stream().filter(value -> value.startsWith(prefix)).toList();
         }
+        if (args.length == 3 && args[1].equalsIgnoreCase("map")) {
+            String prefix = args[2].toLowerCase(Locale.ROOT);
+            return List.of("calibrate", "return", "setspawn", "corner", "setbanner",
+                            "baseclaim", "baseunclaim", "baselist", "finish", "abort").stream()
+                    .filter(value -> value.startsWith(prefix)).toList();
+        }
+        if (args.length == 4 && args[1].equalsIgnoreCase("map")
+                && (args[2].equalsIgnoreCase("setspawn")
+                || args[2].equalsIgnoreCase("baseclaim")
+                || args[2].equalsIgnoreCase("baseunclaim"))) {
+            String prefix = args[3].toLowerCase(Locale.ROOT);
+            return List.of("red", "blue").stream().filter(value -> value.startsWith(prefix)).toList();
+        }
         if (args.length == 3 && args[1].equalsIgnoreCase("supply")) {
             String prefix = args[2].toLowerCase(Locale.ROOT);
             return List.of("claim", "unclaim", "register", "unregister", "list", "info").stream()
@@ -119,6 +136,20 @@ public final class SiegeAdminCommand {
         return List.of();
     }
 
+    private boolean testScore(CommandSender sender) {
+        if (!(sender instanceof Player player) || rotation == null || scoring == null) {
+            sender.sendMessage("Stand in the active siege as a fighter to prepare your team for a rotation test.");
+            return true;
+        }
+        Team team = rotation.activeFighterTeam(player.getUniqueId()).orElse(null);
+        if (team == null) {
+            sender.sendMessage("You must be an active siege fighter to prepare your team's test score.");
+            return true;
+        }
+        scoring.primeTeamForEndTest(team, sender::sendMessage);
+        return true;
+    }
+
     private boolean map(CommandSender sender, String label, String[] args) {
         if (!(sender instanceof Player player) || calibration == null) { sender.sendMessage("Only an in-game admin can calibrate a map."); return true; }
         if (args.length < 3) { mapUsage(sender, label); return true; }
@@ -130,6 +161,19 @@ public final class SiegeAdminCommand {
             case "setspawn" -> { Team team = args.length == 4 ? Team.fromInput(args[3]).orElse(null) : null; if (calibration.activeFor(player).isEmpty() || team == null) sender.sendMessage("Stand in the calibration copy. Usage: /" + label + " admin map setspawn <red|blue>"); else { calibration.setSpawn(team, player.getLocation()); sender.sendMessage(team.defaultDisplayName() + " spawn saved."); } }
             case "corner" -> { int corner = args.length == 4 ? parseCorner(args[3]) : 0; if (calibration.activeFor(player).isEmpty() || corner == 0) sender.sendMessage("Stand in the calibration copy. Usage: /" + label + " admin map corner <1|2>"); else { calibration.setCorner(corner, player.getLocation()); sender.sendMessage("Bounds corner " + corner + " saved."); } }
             case "setbanner" -> { int radius = args.length == 4 ? parsePositive(args[3]) : 8; if (calibration.activeFor(player).isEmpty() || radius == 0) sender.sendMessage("Stand in the calibration copy. Usage: /" + label + " admin map setbanner [radius]"); else { calibration.setBanner(player.getLocation(), radius); sender.sendMessage("Banner position and radius saved."); } }
+            case "baseclaim" -> {
+                Team team = args.length == 4 ? Team.fromInput(args[3]).orElse(null) : null;
+                sender.sendMessage(team == null
+                        ? "Usage: /" + label + " admin map baseclaim <red|blue>"
+                        : calibration.claimBase(player, team));
+            }
+            case "baseunclaim" -> {
+                Team team = args.length == 4 ? Team.fromInput(args[3]).orElse(null) : null;
+                sender.sendMessage(team == null
+                        ? "Usage: /" + label + " admin map baseunclaim <red|blue>"
+                        : calibration.unclaimBase(player, team));
+            }
+            case "baselist" -> calibration.baseClaimLines(player).forEach(sender::sendMessage);
             case "return" -> sender.sendMessage(calibration.returnToMap(player));
             case "finish" -> sender.sendMessage(calibration.finish(player));
             case "abort" -> sender.sendMessage(calibration.abort(player));
@@ -139,7 +183,7 @@ public final class SiegeAdminCommand {
     }
     private static int parseCorner(String value) { return value.equals("1") ? 1 : value.equals("2") ? 2 : 0; }
     private static int parsePositive(String value) { try { int number = Integer.parseInt(value); return number > 0 ? number : 0; } catch (NumberFormatException ignored) { return 0; } }
-    private static void mapUsage(CommandSender sender, String label) { sender.sendMessage("Usage: /" + label + " admin map <calibrate <map>|return|setspawn <red|blue>|corner <1|2>|setbanner [radius]|finish|abort>"); }
+    private static void mapUsage(CommandSender sender, String label) { sender.sendMessage("Usage: /" + label + " admin map <calibrate <map>|return|setspawn <red|blue>|corner <1|2>|setbanner [radius]|baseclaim <red|blue>|baseunclaim <red|blue>|baselist|finish|abort>"); }
 
     private boolean rotation(CommandSender sender, String label, String[] args) {
         if (rotation == null || args.length < 3) {
@@ -162,8 +206,7 @@ public final class SiegeAdminCommand {
                         : "Rotation is not recoverable now, or that enabled map is unknown.");
             }
             case "end" -> sender.sendMessage(rotation.endActive()
-                    ? "Ending the active siege. Rotation will land in intermission — "
-                            + "run rotation force <map> to pick the next map."
+                    ? "Ending the active siege. The next map will prepare during intermission."
                     : "No active round to end.");
             default -> sender.sendMessage("Usage: /" + label
                     + " admin rotation <status|validate [map|all]|retry [map]|end>");

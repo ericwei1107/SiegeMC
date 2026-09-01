@@ -11,8 +11,11 @@ import woo.siegePlugin.storage.PotionStorageService;
 import java.io.File;
 import java.io.IOException;
 import java.util.EnumMap;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Admin-only, disposable map setup session. It is never a combat round. */
 public final class MapCalibrationService {
@@ -29,21 +32,30 @@ public final class MapCalibrationService {
     private Location secondCorner;
     private Location banner;
     private int bannerRadius = 8;
+    private final Set<BaseClaim> baseClaims = new LinkedHashSet<>();
 
     public MapCalibrationService(JavaPlugin plugin, NativeMapWorldLoader loader, RuntimeMapOverrides overrides, File mapsFile, LobbySettings lobby, PotionStorageService storages) {
         this.plugin = plugin; this.loader = loader; this.overrides = overrides; this.mapsFile = mapsFile; this.lobby = lobby; this.storages = storages;
     }
 
     public boolean start(Player player, String mapId) {
-        if (active != null) { player.sendMessage("A calibration session is already open."); return false; }
+        if (active != null || owner != null) { player.sendMessage("A calibration session is already open or loading."); return false; }
         SiegeMap map;
-        try { map = overrides.calibrationMap(mapsFile, mapId); }
+        Optional<SiegeMap> existing;
+        try {
+            map = overrides.calibrationMap(mapsFile, mapId);
+            existing = overrides.calibratedMap(mapsFile, mapId);
+        }
         catch (IllegalArgumentException failure) { player.sendMessage("Could not open map: " + failure.getMessage()); return false; }
         if (!loader.templateExists(map)) { player.sendMessage("That map template is missing or unsafe to load."); return false; }
         owner = player.getUniqueId();
         loader.load(map).whenComplete((loaded, failure) -> plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (failure != null) { owner = null; player.sendMessage("Calibration copy could not be loaded: " + failure.getMessage()); return; }
             active = loaded;
+            restoreDraft(existing.orElse(null));
+            if (firstCorner != null && secondCorner != null) {
+                storages.activateCalibrationMap(active.map().id(), active.world().getName(), bounds());
+            }
             MapPoint arrival = loaded.map().redSpawn();
             player.teleport(new Location(loaded.world(), arrival.x(), arrival.y(), arrival.z(), arrival.yaw(), arrival.pitch()));
             player.setGameMode(GameMode.CREATIVE);
@@ -74,6 +86,56 @@ public final class MapCalibrationService {
     }
     public void setBanner(Location location, int radius) { banner = location.clone(); bannerRadius = radius; }
 
+    public String claimBase(Player player, Team team) {
+        if (activeFor(player).isEmpty()) {
+            return "Stand in your active calibration copy before claiming a base chunk.";
+        }
+        BaseClaim claim = new BaseClaim(team, player.getChunk().getX(), player.getChunk().getZ());
+        BaseClaim occupied = claimAt(claim.chunkX(), claim.chunkZ()).orElse(null);
+        if (occupied != null) {
+            return occupied.team() == team
+                    ? team.defaultDisplayName() + " already owns this chunk."
+                    : "This chunk is already claimed by " + occupied.team().defaultDisplayName() + ".";
+        }
+        if (firstCorner != null && secondCorner != null && !claim.fitsInside(bounds())) {
+            return "That 16x16 chunk reaches outside the calibrated arena bounds.";
+        }
+        baseClaims.add(claim);
+        return "Claimed native chunk " + claim.chunkX() + ", " + claim.chunkZ() + " (blocks "
+                + claim.minBlockX() + ".." + claim.maxBlockX() + ", "
+                + claim.minBlockZ() + ".." + claim.maxBlockZ() + ") for "
+                + team.defaultDisplayName() + ".";
+    }
+
+    public String unclaimBase(Player player, Team team) {
+        if (activeFor(player).isEmpty()) {
+            return "Stand in your active calibration copy before removing a base claim.";
+        }
+        int chunkX = player.getChunk().getX();
+        int chunkZ = player.getChunk().getZ();
+        boolean removed = baseClaims.remove(new BaseClaim(team, chunkX, chunkZ));
+        return removed
+                ? "Removed " + team.defaultDisplayName() + " claim at chunk " + chunkX + ", " + chunkZ + "."
+                : team.defaultDisplayName() + " does not own this chunk.";
+    }
+
+    public List<String> baseClaimLines(Player player) {
+        if (!ownsSession(player)) {
+            return List.of("You do not have an active calibration session.");
+        }
+        if (baseClaims.isEmpty()) {
+            return List.of("No base chunks are staged for this map.");
+        }
+        return baseClaims.stream()
+                .sorted(java.util.Comparator.comparing((BaseClaim claim) -> claim.team().ordinal())
+                        .thenComparingInt(BaseClaim::chunkX).thenComparingInt(BaseClaim::chunkZ))
+                .map(claim -> claim.team().defaultDisplayName() + ": chunk "
+                        + claim.chunkX() + ", " + claim.chunkZ() + " (blocks "
+                        + claim.minBlockX() + ".." + claim.maxBlockX() + ", "
+                        + claim.minBlockZ() + ".." + claim.maxBlockZ() + ")")
+                .toList();
+    }
+
     public String finish(Player player) {
         ActiveMapWorld world = ownsSession(player) ? active : null;
         if (world == null) return "You do not have an active calibration session.";
@@ -81,7 +143,9 @@ public final class MapCalibrationService {
         SiegeMap map;
         try {
             MapBounds bounds = bounds();
-            map = new SiegeMap(world.map().id(), world.map().displayName(), world.map().templateFolder(), spawns.get(Team.RED), spawns.get(Team.BLUE), point(banner), bannerRadius, bounds);
+            map = new SiegeMap(world.map().id(), world.map().displayName(), world.map().templateFolder(),
+                    spawns.get(Team.RED), spawns.get(Team.BLUE), point(banner), bannerRadius,
+                    bounds, Set.copyOf(baseClaims));
             java.util.List<String> problems = new java.util.ArrayList<>(MapValidator.staticProblems(map, true));
             ActiveMapWorld calibrated = new ActiveMapWorld(map, world.world(), world.folder());
             problems.addAll(MapValidator.loadedCopyProblems(calibrated));
@@ -106,16 +170,47 @@ public final class MapCalibrationService {
     }
     public String abort(Player player) { if (!ownsSession(player)) return "You do not have an active calibration session."; close(player); return "Calibration discarded."; }
     private void close(Player player) {
-        ActiveMapWorld closing = active; active = null; owner = null; spawns.clear(); firstCorner = secondCorner = banner = null;
+        ActiveMapWorld closing = active; clearDraft();
         storages.deactivateCalibrationMap();
         player.teleport(lobby.spawn()); player.setGameMode(GameMode.ADVENTURE);
         loader.unload(closing); // no save: the clean template remains immutable
     }
     private void detachForPromotion(Player player) {
-        active = null; owner = null; spawns.clear(); firstCorner = secondCorner = banner = null;
+        clearDraft();
         storages.deactivateCalibrationMap();
         player.teleport(lobby.spawn()); player.setGameMode(GameMode.ADVENTURE);
     }
     private static MapPoint point(Location location) { return new MapPoint(location.getBlockX() + .5, location.getBlockY(), location.getBlockZ() + .5, location.getYaw(), location.getPitch()); }
     private MapBounds bounds() { return new MapBounds(Math.min(firstCorner.getBlockX(), secondCorner.getBlockX()), Math.min(firstCorner.getBlockZ(), secondCorner.getBlockZ()), Math.max(firstCorner.getBlockX(), secondCorner.getBlockX()), Math.max(firstCorner.getBlockZ(), secondCorner.getBlockZ())); }
+
+    private Optional<BaseClaim> claimAt(int chunkX, int chunkZ) {
+        return baseClaims.stream().filter(claim -> claim.chunkX() == chunkX && claim.chunkZ() == chunkZ).findFirst();
+    }
+
+    private void restoreDraft(SiegeMap existing) {
+        spawns.clear();
+        baseClaims.clear();
+        firstCorner = secondCorner = banner = null;
+        bannerRadius = 8;
+        if (existing == null || active == null) {
+            return;
+        }
+        spawns.put(Team.RED, existing.redSpawn());
+        spawns.put(Team.BLUE, existing.blueSpawn());
+        firstCorner = new Location(active.world(), existing.bounds().minX(), 0, existing.bounds().minZ());
+        secondCorner = new Location(active.world(), existing.bounds().maxX(), 0, existing.bounds().maxZ());
+        MapPoint capture = existing.capturePoint();
+        banner = new Location(active.world(), capture.x(), capture.y(), capture.z(), capture.yaw(), capture.pitch());
+        bannerRadius = existing.captureRadius();
+        baseClaims.addAll(existing.baseClaims());
+    }
+
+    private void clearDraft() {
+        active = null;
+        owner = null;
+        spawns.clear();
+        baseClaims.clear();
+        firstCorner = secondCorner = banner = null;
+        bannerRadius = 8;
+    }
 }

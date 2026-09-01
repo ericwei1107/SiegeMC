@@ -9,6 +9,10 @@ import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 import woo.siegePlugin.arena.InMemoryPlacedBlockTracker;
 import woo.siegePlugin.arena.PlacedBlockListener;
+import woo.siegePlugin.arena.BaseClaimBoundaryListener;
+import woo.siegePlugin.arena.BaseClaimInteractionListener;
+import woo.siegePlugin.arena.BaseClaimPolicy;
+import woo.siegePlugin.arena.BaseTerrainProtectionListener;
 import woo.siegePlugin.arena.PlacedBlockTracker;
 import woo.siegePlugin.capture.CaptureBanner;
 import woo.siegePlugin.capture.CaptureListener;
@@ -29,7 +33,6 @@ import woo.siegePlugin.minecart.MinecartWorldCompatibility;
 import woo.siegePlugin.minecart.SiegeMinecartMarker;
 import woo.siegePlugin.combat.CombatLogAdapter;
 import woo.siegePlugin.combat.CombatTagStatus;
-import woo.siegePlugin.combat.CombatTaggedInteractionListener;
 import woo.siegePlugin.display.TeamDisplayListener;
 import woo.siegePlugin.display.TeamDisplayService;
 import woo.siegePlugin.display.TeamIdentityColors;
@@ -126,6 +129,7 @@ public final class SiegePlugin extends JavaPlugin {
     private ActiveRoundProvider activeRounds;
     private RoundRoster roundRoster;
     private ActiveCombatEligibility eligibility;
+    private BaseClaimPolicy baseClaimPolicy;
     private RotationCoordinator rotationCoordinator;
     private MatchStatsTracker matchStatsTracker;
     private MatchStatsService matchStatsService;
@@ -188,6 +192,7 @@ public final class SiegePlugin extends JavaPlugin {
         this.roundRoster = new RoundRoster();
         this.eligibility = new ActiveCombatEligibility(activeRounds, roundRoster);
         this.phaseStatus = activeRounds;
+        this.baseClaimPolicy = new BaseClaimPolicy(activeRounds, eligibility);
         this.captureService = new CaptureService(
                 this,
                 townyAdapter,
@@ -409,12 +414,15 @@ public final class SiegePlugin extends JavaPlugin {
                 sender.sendMessage("/siege admin map setspawn <red|blue> — save the team spawn at your position.");
                 sender.sendMessage("/siege admin map corner <1|2> — save an arena-bounds corner at your position.");
                 sender.sendMessage("/siege admin map setbanner [radius] — save the banner position and capture radius.");
+                sender.sendMessage("/siege admin map baseclaim <red|blue> — stage your current native chunk as team base territory.");
+                sender.sendMessage("/siege admin map baseunclaim <red|blue> | baselist — remove or inspect staged base chunks.");
                 sender.sendMessage("/siege admin map return — teleport back to your active calibration copy.");
                 sender.sendMessage("/siege admin map finish | abort — save this calibration template, or discard setup from anywhere.");
                 sender.sendMessage("/siege admin supply claim <red|blue> — tag the targeted calibration double chest as a team refill supply.");
                 sender.sendMessage("/siege admin supply unclaim — remove the targeted calibration chest's supply tag.");
                 sender.sendMessage("/siege admin supply list | info — inspect supplies discovered in this map copy.");
                 sender.sendMessage("/siege admin rotation status|validate|retry|force|end — inspect, validate, select, or end a round.");
+                sender.sendMessage("/siege admin testscore — set your active team's score to 9,990 for an end-of-siege test.");
                 sender.sendMessage("/siege admin savekit confirm — make your inventory the global default kit.");
                 sender.sendMessage("/siege admin setbanner — move the banner in an active real siege.");
             } else {
@@ -449,7 +457,10 @@ public final class SiegePlugin extends JavaPlugin {
                 new CaptureListener(captureService),
                 this
         );
-        getServer().getPluginManager().registerEvents(new CombatTaggedInteractionListener(combatTagStatus), this);
+        getServer().getPluginManager().registerEvents(
+                new BaseClaimInteractionListener(baseClaimPolicy, combatTagStatus), this
+        );
+        getServer().getPluginManager().registerEvents(new BaseClaimBoundaryListener(baseClaimPolicy), this);
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
                         placedBlockTracker,
@@ -459,6 +470,7 @@ public final class SiegePlugin extends JavaPlugin {
                 ),
                 this
         );
+        getServer().getPluginManager().registerEvents(new BaseTerrainProtectionListener(baseClaimPolicy), this);
         getServer().getPluginManager().registerEvents(
                 new SiegeDeathListener(
                         townyAdapter,

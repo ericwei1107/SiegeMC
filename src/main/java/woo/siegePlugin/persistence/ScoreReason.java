@@ -8,7 +8,8 @@ public enum ScoreReason {
 
     BANNER_CONTROL("banner_control", true),
     ENEMY_DEATH_BONUS("enemy_death_bonus", false),
-    ADMIN_RESET("admin_reset", false);
+    ADMIN_RESET("admin_reset", false),
+    ADMIN_TEST_SET("admin_test_set", false);
 
     private final String storedValue;
     private final boolean contributesToSessionPoints;

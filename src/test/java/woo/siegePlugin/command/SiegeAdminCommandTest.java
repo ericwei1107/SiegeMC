@@ -23,7 +23,7 @@ class SiegeAdminCommandTest {
         List<String> completions = command.tabComplete(sender, new String[]{"admin", "reset"});
         assertEquals(List.of(), completions);
         assertTrue(command.handle(sender, "siege", new String[]{"admin", "resetscores", "confirm"}));
-        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation|map>"), messages);
+        assertEquals(List.of("Usage: /siege admin <setbanner|savekit|supply|rotation|map|testscore>"), messages);
     }
 
     @Test
@@ -35,6 +35,14 @@ class SiegeAdminCommandTest {
                 List.of("rotation"),
                 command.tabComplete(sender, new String[]{"admin", "rot"})
         );
+    }
+
+    @Test
+    void testScoreCommandIsSuggestedForAdmins() {
+        SiegeAdminCommand command = command();
+        CommandSender sender = sender(true, true, new ArrayList<>());
+
+        assertEquals(List.of("testscore"), command.tabComplete(sender, new String[]{"admin", "test"}));
     }
 
     @Test
@@ -61,6 +69,17 @@ class SiegeAdminCommandTest {
                 List.of("blue"),
                 command.tabComplete(sender, new String[]{"admin", "supply", "claim", "b"})
         );
+    }
+
+    @Test
+    void mapBaseClaimsOfferCommandsAndMandatoryTeams() {
+        SiegeAdminCommand command = command();
+        CommandSender sender = sender(true, true, new ArrayList<>());
+
+        assertEquals(List.of("baseclaim"),
+                command.tabComplete(sender, new String[]{"admin", "map", "basec"}));
+        assertEquals(List.of("red"),
+                command.tabComplete(sender, new String[]{"admin", "map", "baseclaim", "r"}));
     }
 
     private static SiegeAdminCommand command() {

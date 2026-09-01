@@ -32,6 +32,11 @@
 #       min-z: -256
 #       max-x: 256
 #       max-z: 256
+#     base-claims:                         # optional native 16x16 chunks
+#       red:
+#         - { chunk-x: -2, chunk-z: 0 }
+#       blue:
+#         - { chunk-x: 1, chunk-z: 0 }
 #
 # Coordinates are template-relative: they are resolved against whichever
 # generated active copy the round is played in, so they never mention a world

@@ -9,6 +9,8 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import woo.siegePlugin.team.Team;
+import java.util.Set;
 
 class RuntimeMapOverridesTest {
 
@@ -40,6 +42,31 @@ class RuntimeMapOverridesTest {
         overrides.saveCaptureCoordinates("unknown", 1.0D, 64.0D, 1.0D);
 
         assertTrue(overrides.findConfigurationProblems(base.toFile()).getFirst().contains("unknown map 'unknown'"));
+    }
+
+    @Test
+    void calibrationClaimsSurviveBaseManifestReplacementWithExistingSetup() throws Exception {
+        Path base = directory.resolve("maps.yml");
+        Files.writeString(base, completeMap(), StandardCharsets.UTF_8);
+        RuntimeMapOverrides overrides = new RuntimeMapOverrides(directory.toFile());
+        SiegeMap original = overrides.loadManifest(base.toFile()).find("kazan").orElseThrow();
+        SiegeMap claimed = new SiegeMap(
+                original.id(), original.displayName(), original.templateFolder(),
+                original.redSpawn(), original.blueSpawn(), original.capturePoint(),
+                original.captureRadius(), original.bounds(), Set.of(
+                        new BaseClaim(Team.RED, -2, 0), new BaseClaim(Team.BLUE, 1, 0)
+                )
+        );
+
+        overrides.saveCalibration(claimed);
+        Files.writeString(base, completeMap().replace("Siege of Kazan", "Kazan Updated"),
+                StandardCharsets.UTF_8);
+
+        SiegeMap reloaded = overrides.loadManifest(base.toFile()).find("kazan").orElseThrow();
+        assertEquals("Kazan Updated", reloaded.displayName());
+        assertEquals(claimed.redSpawn(), reloaded.redSpawn());
+        assertEquals(claimed.bounds(), reloaded.bounds());
+        assertEquals(claimed.baseClaims(), reloaded.baseClaims());
     }
 
     private static String completeMap() {

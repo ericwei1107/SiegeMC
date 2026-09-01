@@ -6,8 +6,12 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
+import woo.siegePlugin.team.Team;
 
 /** VPS-owned capture-point coordinates layered over the deploy-managed map manifest. */
 public final class RuntimeMapOverrides {
@@ -75,6 +79,11 @@ public final class RuntimeMapOverrides {
                 arrival, 1, new MapBounds(-30_000_000, -30_000_000, 30_000_000, 30_000_000));
     }
 
+    /** Existing complete setup, when this map has already been calibrated. */
+    public Optional<SiegeMap> calibratedMap(File mapsFile, String mapId) {
+        return loadManifest(mapsFile).find(mapId);
+    }
+
     private static MapPoint calibrationPoint(FileConfiguration config, String path) {
         Object x = config.get(path + ".x"), y = config.get(path + ".y"), z = config.get(path + ".z");
         if (!(x instanceof Number xNumber) || !(y instanceof Number yNumber) || !(z instanceof Number zNumber)
@@ -100,6 +109,21 @@ public final class RuntimeMapOverrides {
         overrides.set(root + ".bounds.min-z", map.bounds().minZ());
         overrides.set(root + ".bounds.max-x", map.bounds().maxX());
         overrides.set(root + ".bounds.max-z", map.bounds().maxZ());
+        String claimsRoot = "maps." + map.id() + ".base-claims";
+        overrides.set(claimsRoot, null);
+        for (Team team : Team.values()) {
+            List<Map<String, Integer>> claims = map.claimsFor(team).stream()
+                    .sorted(java.util.Comparator.comparingInt(BaseClaim::chunkX)
+                            .thenComparingInt(BaseClaim::chunkZ))
+                    .map(claim -> {
+                        Map<String, Integer> values = new LinkedHashMap<>();
+                        values.put("chunk-x", claim.chunkX());
+                        values.put("chunk-z", claim.chunkZ());
+                        return values;
+                    })
+                    .toList();
+            overrides.set(claimsRoot + "." + team.configKey(), claims);
+        }
         overrides.save(file);
     }
 
@@ -126,6 +150,8 @@ public final class RuntimeMapOverrides {
             String pointPath = basePath + ".capture-point";
             ConfigurationSection setup = overrides.getConfigurationSection(basePath + ".setup");
             if (setup != null) copySetup(base, basePath, setup);
+            ConfigurationSection claims = overrides.getConfigurationSection(basePath + ".base-claims");
+            if (claims != null) copyBaseClaims(base, basePath, claims);
             ConfigurationSection point = overrides.getConfigurationSection(pointPath);
             if (point == null) {
                 continue;
@@ -140,6 +166,13 @@ public final class RuntimeMapOverrides {
             }
         }
         return base;
+    }
+
+    private static void copyBaseClaims(FileConfiguration base, String root, ConfigurationSection claims) {
+        base.set(root + ".base-claims", null);
+        for (String key : claims.getKeys(false)) {
+            base.set(root + ".base-claims." + key, claims.get(key));
+        }
     }
 
     private static void copySetup(FileConfiguration base, String root, ConfigurationSection setup) {

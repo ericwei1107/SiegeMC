@@ -166,6 +166,36 @@ public final class ScoringService implements woo.siegePlugin.round.RoundScoring 
         return scores;
     }
 
+    /** Prepares an active team for an end-of-siege rotation test. */
+    public void primeTeamForEndTest(Team team, Consumer<String> completion) {
+        final long targetScore = 9_990L;
+        if (!phaseStatus.isActive() || scores == null || matchDefinition == null) {
+            completion.accept("No active siege is available to prepare for a rotation test.");
+            return;
+        }
+        if (scores.scoreLimit() <= targetScore) {
+            completion.accept("The configured winning score must be above " + targetScore + " for this test.");
+            return;
+        }
+        String matchId = matchDefinition.matchId();
+        matchScoreDao.setActiveTeamScore(matchId, team, targetScore, ScoreReason.ADMIN_TEST_SET)
+                .whenComplete((updated, failure) -> onServerThread(() -> {
+                    if (failure != null) {
+                        logScoreFailure("prepare the rotation test", failure);
+                        completion.accept("Could not prepare the rotation test. Check the server log.");
+                        return;
+                    }
+                    if (matchDefinition == null || !matchId.equals(matchDefinition.matchId())) {
+                        completion.accept("The active siege changed before the test score could be applied.");
+                        return;
+                    }
+                    scores = updated;
+                    publishScores();
+                    completion.accept(team.defaultDisplayName() + " was set to " + targetScore
+                            + " points. Earn 10 more points to test match completion and rotation.");
+                }));
+    }
+
     /**
      * Credits a team for an enemy death. The caller decides who died; this
      * decides whether the award currently counts.

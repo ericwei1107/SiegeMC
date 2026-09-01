@@ -324,6 +324,24 @@ class RotationCoordinatorTest {
     }
 
     @Test
+    void adminEndingARoundStillPreparesAndLaunchesTheNextMap() throws Exception {
+        try (RotationTestHarness rig = rig("kazan", "murmansk")) {
+            UUID fighter = rig.audience.join("A");
+            rig.startAndQueue(fighter);
+            rig.tick();
+
+            assertTrue(rig.coordinator().endActive());
+            rig.settle();
+            rig.advance(Duration.ofSeconds(41));
+            rig.tick();
+
+            assertEquals(RoundPhase.ACTIVE, rig.rounds.phase());
+            assertEquals(2, rig.published.size(), "admin end must flow into the next automatic round");
+            assertTrue(rig.broadcastContains("Preparing the next map"));
+        }
+    }
+
+    @Test
     void theOldWorldIsEnrolledForCleanupAndRetriedWhilePlayersRemain() throws Exception {
         try (RotationTestHarness rig = rig("kazan", "murmansk")) {
             UUID fighter = rig.audience.join("A");

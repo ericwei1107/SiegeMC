@@ -39,7 +39,24 @@ public final class MapValidator {
             problems.add("red-spawn and blue-spawn are the same position");
         }
         checkCaptureZone(problems, map);
+        for (BaseClaim claim : map.baseClaims()) {
+            if (!claim.fitsInside(map.bounds())) {
+                problems.add(claim.team().defaultDisplayName() + " base claim at chunk "
+                        + claim.chunkX() + ", " + claim.chunkZ() + " reaches outside bounds");
+            }
+        }
         return List.copyOf(problems);
+    }
+
+    /** Non-blocking migration warnings for maps not yet given both team claims. */
+    public static List<String> baseClaimWarnings(SiegeMap map) {
+        List<String> warnings = new ArrayList<>();
+        for (woo.siegePlugin.team.Team team : woo.siegePlugin.team.Team.values()) {
+            if (map.claimsFor(team).isEmpty()) {
+                warnings.add(team.defaultDisplayName() + " has no protected base claims");
+            }
+        }
+        return List.copyOf(warnings);
     }
 
     /**

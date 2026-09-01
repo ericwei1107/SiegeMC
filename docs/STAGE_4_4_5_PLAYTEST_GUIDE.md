@@ -6,7 +6,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
 
 0. Migrate `plugins/SiegePlugin/config.yml`: add `scoring.winning-score` and the `rotation.preparation-timeout-seconds` block, and delete the retired `activity-cycle` block, `cleanup.map-reset-interval-hours`, and the `arena-reset` block. The plugin now refuses to start while any of them remain, naming each one. Old snapshot files under `plugins/SiegePlugin/snapshot/` are deliberately left on disk for manual cleanup.
 1. Put immutable template folders under `plugins/SiegePlugin/maps/templates/<template-folder>`.
-2. Configure and enable at least two entries in `maps.yml`, following the commented schema at the top of that file: both spawns, capture point/radius, and ordered X/Z bounds.
+2. Configure and enable at least two entries in `maps.yml`, following the commented schema at the top of that file: both spawns, capture point/radius, and ordered X/Z bounds. Base claims are saved by calibration into `runtime-map-overrides.yml`; do not create Towny towns over the disposable map copies.
 3. Start the server and run:
 
    ```text
@@ -15,7 +15,7 @@ This guide covers the current finite-round build. Run it on the disposable devel
    ```
 
 4. Every enabled map must report `valid`. `validate` re-reads `maps.yml` from disk, so an edit needs no restart, and it fails loudly on malformed YAML instead of quietly reporting an empty pool. Validation runs in two stages and a map must clear both before it can host a round:
-   - **Static** (manifest and template folder): real-path template containment, `level.dat`, map id restricted to `[A-Za-z0-9_-]`, every `bounds` edge present, finite coordinates, both spawns and the entire capture radius inside `bounds`, distinct team spawns, and registered supplies inside `bounds`.
+   - **Static** (manifest and template folder): real-path template containment, `level.dat`, map id restricted to `[A-Za-z0-9_-]`, every `bounds` edge present, finite coordinates, both spawns and the entire capture radius inside `bounds`, distinct team spawns, every claimed native chunk entirely inside `bounds`, and registered supplies inside `bounds`.
    - **Loaded copy** (a throwaway copy is made, checked, then always unloaded): solid non-hazardous spawn footing, passable feet and head space, a supported capture position, and heights inside that world's own build range. Tagged supply chests are discovered from the template and do not veto rotation.
 
    Because it copies each template, `validate all` takes a moment and reports asynchronously. A map that does not validate is skipped when rotation picks candidates, so fix every problem before relying on it as a fallback.
@@ -72,6 +72,17 @@ This guide covers the current finite-round build. Run it on the disposable devel
 - [ ] Place a double chest in the lobby at the exact coordinates of a registered supply. It must behave as an ordinary chest, never as a team supply.
 - [ ] After a rotation, confirm only the new map's labels exist — the previous map's floating labels are removed, and no unrelated `TextDisplay` entity in any world is touched.
 - [ ] Confirm legacy world-name entries remain in `potion-storages.yml` but do not attach themselves to unrelated active copies.
+
+## Team base claims
+
+- [ ] Reopen each map with `/siege admin map calibrate <map>`. Confirm its prior spawns, bounds, banner, potion-supply edits, and existing base claims are restored rather than reset.
+- [ ] Stand in every base chunk and run `/siege admin map baseclaim <red|blue>`. The reported block range must match Minecraft's native chunk shown by F3, including chunks with negative coordinates. Use `/siege admin map baselist` to review all staged claims and `/siege admin map baseunclaim <red|blue>` to correct one.
+- [ ] Confirm a chunk cannot belong to both teams and that a claim extending even one block outside the calibrated map bounds is rejected. Finish calibration and run `/siege admin rotation validate <map>`.
+- [ ] Start a round. Break/place blocks, use buckets, pistons, fire, fluids, growth, and explosions in both teams' claimed chunks. The template terrain must remain unchanged for owners, enemies, spectators, and non-roster players.
+- [ ] In a Red claim, verify a Red roster fighter can use doors, trapdoors, fence gates, buttons, levers, and pressure plates while untagged and combat-tagged. Blue fighters, spectators, and non-roster players must not be able to use them. Repeat with the teams reversed in a Blue claim.
+- [ ] Outside all claims, verify a combat-tagged fighter is still blocked from opening fence gates and receives only the red chat warning; riptide and mending remain allowed.
+- [ ] Walk from unclaimed land into the owning team's claim and see the private green `You have entered your claim` chat message. Walk out and see the private red `You have exited your claim` message. Crossing directly between adjacent chunks owned by the same team must produce no message, and entering an enemy claim must produce no ownership message.
+- [ ] Rotate away and back. Confirm claims follow the map id, apply to the new disposable copy, and neither leak into the lobby nor a different map.
 
 ## Continuous capture, shop, kits, and minecarts
 

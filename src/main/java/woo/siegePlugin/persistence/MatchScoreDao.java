@@ -216,6 +216,45 @@ public final class MatchScoreDao {
         });
     }
 
+    /**
+     * Sets one active team's score to an exact value while preserving a ledger
+     * entry for the adjustment. This deliberately does not evaluate the
+     * winning cutoff: test setup must leave the final scoring event to prove
+     * the normal completion and rotation handoff.
+     */
+    public CompletableFuture<MatchRecord> setActiveTeamScore(
+            String matchId, Team team, long score, ScoreReason reason
+    ) {
+        Objects.requireNonNull(matchId, "matchId");
+        Objects.requireNonNull(team, "team");
+        Objects.requireNonNull(reason, "reason");
+        if (score < 0L) {
+            throw new IllegalArgumentException("Score must not be negative");
+        }
+        return database.submitTransaction(connection -> {
+            MatchRecord before = readMatch(connection, matchId);
+            if (before.status() != MatchStatus.ACTIVE) {
+                throw new SQLException("Cannot set a score for " + matchId + ": match is " + before.status());
+            }
+            long adjustment = score - before.scoreFor(team);
+            if (adjustment != 0L) {
+                appendLedgerEntry(connection, matchId, team, adjustment, reason);
+            }
+            String column = team == Team.RED ? "red_score" : "blue_score";
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE matches SET " + column + " = ?, updated_at = ? WHERE match_id = ? AND status = 'ACTIVE'"
+            )) {
+                update.setLong(1, score);
+                update.setLong(2, System.currentTimeMillis());
+                update.setString(3, matchId);
+                if (update.executeUpdate() != 1) {
+                    throw new SQLException("Could not set the score for " + matchId);
+                }
+            }
+            return readMatch(connection, matchId);
+        });
+    }
+
     /** Number of ledger rows recorded for a match. */
     public CompletableFuture<Integer> countLedgerEntries(String matchId) {
         Objects.requireNonNull(matchId, "matchId");

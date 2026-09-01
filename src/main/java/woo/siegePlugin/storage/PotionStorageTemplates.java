@@ -7,6 +7,8 @@ import org.bukkit.inventory.meta.PotionMeta;
 /** Validation and refill-item helpers shared by command and listener code. */
 public final class PotionStorageTemplates {
 
+    private static final int FULL_SUPPLY_STACK = 64;
+
     private PotionStorageTemplates() {
     }
 
@@ -29,6 +31,14 @@ public final class PotionStorageTemplates {
         return switch (material) {
             case POTION, SPLASH_POTION, LINGERING_POTION, BAKED_POTATO, EXPERIENCE_BOTTLE -> true;
             default -> false;
+        };
+    }
+
+    /** Food and XP supplies refill every chest slot as a normal full stack. */
+    static int refillAmount(Material material) {
+        return switch (material) {
+            case BAKED_POTATO, EXPERIENCE_BOTTLE -> FULL_SUPPLY_STACK;
+            default -> 1;
         };
     }
 

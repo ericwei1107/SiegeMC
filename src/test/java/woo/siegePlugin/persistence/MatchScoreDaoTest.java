@@ -124,6 +124,23 @@ class MatchScoreDaoTest {
     }
 
     @Test
+    void testScoreSetupSetsAnExactActiveTeamScoreAndLedgersItsAdjustment() throws Exception {
+        try (SiegeDatabase database = openDatabase()) {
+            MatchScoreDao dao = new MatchScoreDao(database);
+            await(dao.loadOrCreate(MATCH));
+            await(dao.award(MATCH_ID, Team.RED, 40L, ScoreReason.BANNER_CONTROL));
+
+            MatchRecord prepared = await(dao.setActiveTeamScore(
+                    MATCH_ID, Team.RED, 9_990L, ScoreReason.ADMIN_TEST_SET
+            ));
+
+            assertEquals(9_990L, prepared.redScore());
+            assertEquals(MatchStatus.ACTIVE, prepared.status());
+            assertEquals(2, await(dao.countLedgerEntries(MATCH_ID)));
+        }
+    }
+
+    @Test
     void awardingAnUnknownMatchFailsAndWritesNoLedgerEntry() throws Exception {
         try (SiegeDatabase database = openDatabase()) {
             MatchScoreDao dao = new MatchScoreDao(database);

@@ -4,6 +4,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
+import woo.siegePlugin.team.Team;
 
 import java.io.File;
 import java.io.IOException;
@@ -11,9 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /** Parses only fully enabled map entries; unfinished templates cannot enter a live rotation pool. */
@@ -139,8 +142,61 @@ public final class MapManifest {
                         requiredInt(config, path + ".bounds.min-z"),
                         requiredInt(config, path + ".bounds.max-x"),
                         requiredInt(config, path + ".bounds.max-z")
-                )
+                ),
+                baseClaims(config, path)
         );
+    }
+
+    private static Set<BaseClaim> baseClaims(FileConfiguration config, String path) {
+        String root = path + ".base-claims";
+        ConfigurationSection section = config.getConfigurationSection(root);
+        if (section == null) {
+            if (config.isSet(root)) {
+                throw new IllegalArgumentException(root + " must contain red and blue claim lists");
+            }
+            return Set.of();
+        }
+        for (String key : section.getKeys(false)) {
+            if (Team.fromInput(key).isEmpty()) {
+                throw new IllegalArgumentException(root + "." + key + " is not a valid team");
+            }
+        }
+        Set<BaseClaim> claims = new LinkedHashSet<>();
+        for (Team team : Team.values()) {
+            String teamPath = root + "." + team.configKey();
+            Object raw = config.get(teamPath);
+            if (raw == null) {
+                continue;
+            }
+            if (!(raw instanceof List<?> entries)) {
+                throw new IllegalArgumentException(teamPath + " must be a list");
+            }
+            for (int index = 0; index < entries.size(); index++) {
+                if (!(entries.get(index) instanceof Map<?, ?> entry)
+                        || !(entry.get("chunk-x") instanceof Number x)
+                        || !(entry.get("chunk-z") instanceof Number z)) {
+                    throw new IllegalArgumentException(teamPath + "[" + index
+                            + "] must contain numeric chunk-x and chunk-z");
+                }
+                BaseClaim claim = new BaseClaim(team,
+                        chunkCoordinate(x, teamPath + "[" + index + "].chunk-x"),
+                        chunkCoordinate(z, teamPath + "[" + index + "].chunk-z"));
+                if (!claims.add(claim)) {
+                    throw new IllegalArgumentException(teamPath + " contains duplicate chunk "
+                            + claim.chunkX() + "," + claim.chunkZ());
+                }
+            }
+        }
+        return Set.copyOf(claims);
+    }
+
+    private static int chunkCoordinate(Number value, String path) {
+        double coordinate = value.doubleValue();
+        if (!Double.isFinite(coordinate) || coordinate != Math.rint(coordinate)
+                || coordinate < Integer.MIN_VALUE || coordinate > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException(path + " must be a whole chunk coordinate");
+        }
+        return (int) coordinate;
     }
 
     private static MapPoint point(FileConfiguration config, String path) {

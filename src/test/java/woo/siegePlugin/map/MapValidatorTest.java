@@ -1,8 +1,10 @@
 package woo.siegePlugin.map;
 
 import org.junit.jupiter.api.Test;
+import woo.siegePlugin.team.Team;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -59,6 +61,33 @@ class MapValidatorTest {
         assertTrue(MapValidator.contains(bounds, -256, 256));
         assertTrue(MapValidator.contains(bounds, 256, -256));
         assertEquals(false, MapValidator.contains(bounds, 256.5, 0));
+    }
+
+    @Test
+    void everyClaimedNativeChunkMustFitEntirelyInsideArenaBounds() {
+        SiegeMap map = new SiegeMap(
+                "kazan", "Siege of Kazan", "kazan",
+                point(-100, 70, -100), point(100, 70, 100), point(0, 70, 0), 16,
+                new MapBounds(-16, -16, 30, 30),
+                Set.of(new BaseClaim(Team.RED, -1, -1), new BaseClaim(Team.BLUE, 1, 1))
+        );
+
+        List<String> problems = MapValidator.staticProblems(map, true);
+
+        assertTrue(problems.stream().anyMatch(problem -> problem.contains("Blue Team base claim at chunk 1, 1")),
+                problems.toString());
+        assertTrue(problems.stream().noneMatch(problem -> problem.contains("Red Team base claim")),
+                problems.toString());
+    }
+
+    @Test
+    void missingTeamClaimsAreWarningsRatherThanAdmissionFailures() {
+        SiegeMap map = map(
+                point(-100, 70, -100), point(100, 70, 100), point(0, 70, 0), 16
+        );
+
+        assertEquals(List.of(), MapValidator.staticProblems(map, true));
+        assertEquals(2, MapValidator.baseClaimWarnings(map).size());
     }
 
     private static SiegeMap map(MapPoint red, MapPoint blue, MapPoint capture, int radius) {
