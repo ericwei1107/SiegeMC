@@ -80,6 +80,76 @@ final class TemplatePotionStorageCatalog {
         }
     }
 
+    /**
+     * Converts exact-map legacy YAML records into portable template tags.
+     * Existing chest metadata always wins and the legacy file is never changed.
+     */
+    int migrateLegacy(
+            World world,
+            String mapId,
+            MapBounds bounds,
+            Collection<PotionStorage> legacy,
+            Consumer<String> warning
+    ) {
+        Map<UUID, TemplateSupplyIndex.Entry> index = index(world);
+        boolean indexChanged = false;
+        int migrated = 0;
+        for (PotionStorage storage : legacy) {
+            if (!storage.key().mapId().equals(mapId)) {
+                continue;
+            }
+            if (!withinBounds(storage.key(), bounds)) {
+                warning.accept("Could not migrate legacy potion supply " + storage.id()
+                        + ": its saved coordinates are outside the calibrated map bounds");
+                continue;
+            }
+            PotionStorageKey key = storage.key();
+            Block expectedFirst = world.getBlockAt(key.first().x(), key.first().y(), key.first().z());
+            Block expectedSecond = world.getBlockAt(key.second().x(), key.second().y(), key.second().z());
+            Pair pair = pair(expectedFirst);
+            if (pair == null || !samePair(pair, expectedFirst, expectedSecond)) {
+                warning.accept("Could not migrate legacy potion supply " + storage.id()
+                        + ": its saved coordinates no longer form one double chest");
+                continue;
+            }
+
+            Tagged existing = tagged(pair.first(), pair.second());
+            if (hasAnySupplyData(pair)) {
+                if (existing == null) {
+                    warning.accept("Could not migrate legacy potion supply " + storage.id()
+                            + ": the chest already has incomplete or conflicting template tags");
+                    continue;
+                }
+                // Repair an absent/stale world index without replacing the
+                // already-authoritative definition stored in the chest pair.
+                TemplateSupplyIndex.Entry repaired = entry(existing.id(), pair);
+                TemplateSupplyIndex.Entry indexed = index.get(existing.id());
+                if (indexed == null) {
+                    index.put(existing.id(), repaired);
+                    indexChanged = true;
+                } else if (!indexed.equals(repaired)) {
+                    warning.accept("Could not repair template potion supply " + existing.id()
+                            + ": its supply ID is already indexed at another chest");
+                }
+                continue;
+            }
+
+            write(pair.first(), storage.id(), storage.team(), storage.potion());
+            write(pair.second(), storage.id(), storage.team(), storage.potion());
+            index.put(storage.id(), entry(storage.id(), pair));
+            indexChanged = true;
+            migrated++;
+        }
+        if (indexChanged) {
+            saveIndex(world, index.values());
+        }
+        return migrated;
+    }
+
+    static boolean isMigrationCandidate(PotionStorageKey key, String mapId, MapBounds bounds) {
+        return key.mapId().equals(mapId) && withinBounds(key, bounds);
+    }
+
     Collection<PotionStorage> discover(World world, String mapId, MapBounds bounds, Consumer<String> warning) {
         List<PotionStorage> found = new ArrayList<>();
         for (TemplateSupplyIndex.Entry entry : index(world).values()) {
@@ -140,6 +210,17 @@ final class TemplatePotionStorageCatalog {
         }
     }
 
+    private boolean hasAnySupplyData(Pair pair) {
+        return hasAnySupplyData(pair.first()) || hasAnySupplyData(pair.second());
+    }
+
+    private boolean hasAnySupplyData(Chest chest) {
+        PersistentDataContainer data = chest.getPersistentDataContainer();
+        return data.getKeys().contains(idKey)
+                || data.getKeys().contains(teamKey)
+                || data.getKeys().contains(potionKey);
+    }
+
     private Map<UUID, TemplateSupplyIndex.Entry> index(World world) {
         return new LinkedHashMap<>(TemplateSupplyIndex.decode(
                 world.getPersistentDataContainer().get(indexKey, PersistentDataType.STRING)
@@ -187,6 +268,11 @@ final class TemplatePotionStorageCatalog {
 
     private static boolean same(Chest chest, Block block) {
         return chest.getX() == block.getX() && chest.getY() == block.getY() && chest.getZ() == block.getZ();
+    }
+
+    private static boolean samePair(Pair pair, Block first, Block second) {
+        return same(pair.first(), first) && same(pair.second(), second)
+                || same(pair.first(), second) && same(pair.second(), first);
     }
 
     private record Pair(Chest first, Chest second) {

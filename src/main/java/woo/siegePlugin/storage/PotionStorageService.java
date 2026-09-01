@@ -35,6 +35,7 @@ public final class PotionStorageService {
 
     private final JavaPlugin plugin;
     private final TemplatePotionStorageCatalog templateCatalog;
+    private final PotionStorageRegistry legacyRegistry;
     private final PotionStorageLabels labels;
     private final TownyAdapter townyAdapter;
 
@@ -46,6 +47,9 @@ public final class PotionStorageService {
     public PotionStorageService(JavaPlugin plugin, TownyAdapter townyAdapter) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.templateCatalog = new TemplatePotionStorageCatalog(plugin);
+        this.legacyRegistry = new PotionStorageStore(
+                new java.io.File(plugin.getDataFolder(), "potion-storages.yml"), plugin.getLogger()
+        ).load();
         this.labels = new PotionStorageLabels(plugin);
         this.townyAdapter = Objects.requireNonNull(townyAdapter, "townyAdapter");
     }
@@ -201,7 +205,19 @@ public final class PotionStorageService {
     /** Publishes a calibration-only snapshot alongside any active combat round. */
     public void activateCalibrationMap(String mapId, String runtimeWorldName, MapBounds bounds) {
         closeContext(calibration);
-        calibration = new RuntimeContext(mapId, runtimeWorldName, bounds, discover(mapId, runtimeWorldName, bounds));
+        org.bukkit.World world = org.bukkit.Bukkit.getWorld(runtimeWorldName);
+        if (world != null) {
+            int migrated = templateCatalog.migrateLegacy(
+                    world, mapId, bounds, legacyRegistry.all(),
+                    problem -> plugin.getLogger().warning(problem + " in " + runtimeWorldName)
+            );
+            if (migrated > 0) {
+                plugin.getLogger().info("Migrated " + migrated + " legacy potion storage claim(s) into "
+                        + mapId + " calibration. Finish calibration to save them into the clean template.");
+            }
+        }
+        calibration = new RuntimeContext(mapId, runtimeWorldName, bounds,
+                discover(mapId, runtimeWorldName, bounds));
         labels.rebuild(calibration.storages(), calibration.runtimeWorld());
     }
 
@@ -236,15 +252,30 @@ public final class PotionStorageService {
     }
 
     /**
-     * Legacy records keyed by a literal world name still load, but they only
-     * bind while that world happens to be active. Operators need to know which
-     * ones to re-register per map rather than discovering an empty base chest.
+     * Exact map-id records are retained as migration input until calibration
+     * saves their definitions into the template. Unknown old world identities
+     * remain untouched and require an operator to identify the intended map.
      */
     public void warnLegacyRecords(java.util.Set<String> knownMapIds) {
-        PotionStorageRegistry legacy = new PotionStorageStore(
-                new java.io.File(plugin.getDataFolder(), "potion-storages.yml"), plugin.getLogger()).load();
-        if (!legacy.all().isEmpty()) {
-            plugin.getLogger().warning("Legacy potion-storages.yml entries are ignored. Claim supplies during map calibration to store them in the template.");
+        java.util.List<String> recognized = legacyRegistry.all().stream()
+                .map(storage -> storage.key().mapId())
+                .filter(knownMapIds::contains)
+                .distinct()
+                .sorted()
+                .toList();
+        java.util.List<String> unknown = legacyRegistry.all().stream()
+                .map(storage -> storage.key().mapId())
+                .filter(identity -> !knownMapIds.contains(identity))
+                .distinct()
+                .sorted()
+                .toList();
+        if (!recognized.isEmpty()) {
+            plugin.getLogger().warning("Legacy potion storage claims for " + recognized
+                    + " will be migrated into chest tags when each map is opened and finished in calibration.");
+        }
+        if (!unknown.isEmpty()) {
+            plugin.getLogger().warning("Legacy potion storage identities " + unknown
+                    + " do not match an enabled map id. Their data remains untouched; claim those chests manually during calibration.");
         }
     }
 
