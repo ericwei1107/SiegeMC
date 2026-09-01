@@ -142,24 +142,15 @@ final class RotationTestHarness implements AutoCloseable {
         ));
     }
 
-    /**
-     * Runs queued server-thread work until the lifecycle stops producing more.
-     *
-     * <p>Database futures complete on SQLite's own worker and only then queue
-     * their continuation, so an empty queue does not mean the round has settled.
-     * This waits for a sustained quiet period instead of stopping at the first
-     * empty poll.</p>
-     */
+    /** Runs queued server-thread work until the lifecycle stops producing more. */
     void settle() {
-        int consecutiveIdlePolls = 0;
-        for (int guard = 0; guard < 5_000 && consecutiveIdlePolls < 25; guard++) {
-            if (scheduler.drainOnce()) {
-                consecutiveIdlePolls = 0;
-            } else {
-                consecutiveIdlePolls++;
-                quietSleep();
+        for (int guard = 0; guard < 5_000; guard++) {
+            awaitDatabaseBarrier();
+            if (!scheduler.drainOnce()) {
+                return;
             }
         }
+        throw new AssertionError("Rotation lifecycle did not settle after 5,000 callback rounds");
     }
 
     void tick() {
@@ -189,11 +180,19 @@ final class RotationTestHarness implements AutoCloseable {
         database.close();
     }
 
-    private static void quietSleep() {
+    /**
+     * SQLite uses one FIFO worker. This read cannot complete until every DAO
+     * operation accepted before it, including synchronous future continuations,
+     * has finished and queued its server-thread callback.
+     */
+    private void awaitDatabaseBarrier() {
         try {
-            Thread.sleep(2L);
+            stateDao.load().get(5, TimeUnit.SECONDS);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting for the test database", interrupted);
+        } catch (Exception failure) {
+            throw new AssertionError("Could not reach the test database barrier", failure);
         }
     }
 

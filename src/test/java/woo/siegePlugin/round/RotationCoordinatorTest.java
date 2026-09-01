@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,6 +24,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RotationCoordinatorTest {
 
     @TempDir Path directory;
+
+    @Test
+    void settlingWaitsForSlowDatabaseContinuations() throws Exception {
+        try (RotationTestHarness rig = rig("kazan")) {
+            AtomicBoolean delivered = new AtomicBoolean();
+            CompletableFuture<?> delayed = rig.stateDao.load().thenApply(state -> {
+                try {
+                    Thread.sleep(150L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+                return state;
+            });
+            delayed.whenComplete((state, failure) ->
+                    rig.scheduler.onServerThread(() -> delivered.set(failure == null)));
+
+            rig.settle();
+
+            assertTrue(delivered.get(), "settle must wait for the SQLite continuation to reach the server queue");
+        }
+    }
 
     // ------------------------------------------------------------- bootstrap
 
