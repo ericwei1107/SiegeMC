@@ -15,6 +15,7 @@ import woo.siegePlugin.arena.BaseClaimPolicy;
 import woo.siegePlugin.arena.BaseTerrainProtectionListener;
 import woo.siegePlugin.arena.PlacedBlockTracker;
 import woo.siegePlugin.capture.CaptureBanner;
+import woo.siegePlugin.capture.CaptureStructureProtectionListener;
 import woo.siegePlugin.capture.CaptureListener;
 import woo.siegePlugin.capture.CaptureService;
 import woo.siegePlugin.capture.CaptureSettings;
@@ -515,19 +516,25 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new BaseClaimInteractionListener(baseClaimPolicy, combatTagStatus), this
         );
-        getServer().getPluginManager().registerEvents(new CombatTaggedInteractionListener(combatTagStatus), this);
+        getServer().getPluginManager().registerEvents(
+                new CombatTaggedInteractionListener(combatTagStatus, baseClaimPolicy), this
+        );
         getServer().getPluginManager().registerEvents(new CombatTaggedCommandListener(combatTagStatus, sounds), this);
         getServer().getPluginManager().registerEvents(new BaseClaimBoundaryListener(baseClaimPolicy), this);
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
                         placedBlockTracker,
                         activeRounds,
-                        eligibility,
-                        sounds
+                        eligibility
                 ),
                 this
         );
-        getServer().getPluginManager().registerEvents(new BaseTerrainProtectionListener(baseClaimPolicy), this);
+        getServer().getPluginManager().registerEvents(
+                new BaseTerrainProtectionListener(baseClaimPolicy, placedBlockTracker), this
+        );
+        getServer().getPluginManager().registerEvents(
+                new CaptureStructureProtectionListener(() -> captureService.banner().location()), this
+        );
         getServer().getPluginManager().registerEvents(
                 new SiegeDeathListener(
                         townyAdapter,

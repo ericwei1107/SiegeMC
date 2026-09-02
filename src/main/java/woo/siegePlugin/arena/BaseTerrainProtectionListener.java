@@ -27,6 +27,7 @@ import org.bukkit.event.player.PlayerBucketFillEvent;
 import org.bukkit.event.world.StructureGrowEvent;
 
 import java.util.Objects;
+import woo.siegePlugin.team.Team;
 
 /** Makes template terrain immutable inside every active team base claim. */
 public final class BaseTerrainProtectionListener implements Listener {
@@ -35,14 +36,16 @@ public final class BaseTerrainProtectionListener implements Listener {
             "Base terrain cannot be changed during a siege.", NamedTextColor.RED
     );
     private final BaseClaimPolicy claims;
+    private final PlacedBlockTracker placedBlocks;
 
-    public BaseTerrainProtectionListener(BaseClaimPolicy claims) {
+    public BaseTerrainProtectionListener(BaseClaimPolicy claims, PlacedBlockTracker placedBlocks) {
         this.claims = Objects.requireNonNull(claims, "claims");
+        this.placedBlocks = Objects.requireNonNull(placedBlocks, "placedBlocks");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onBreak(BlockBreakEvent event) {
-        if (protects(event.getBlock())) {
+        if (deniesBreak(event.getPlayer(), event.getBlock(), placedBlocks.contains(event.getBlock()))) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(DENIED);
         }
@@ -50,7 +53,7 @@ public final class BaseTerrainProtectionListener implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlace(BlockPlaceEvent event) {
-        if (protects(event.getBlockPlaced())) {
+        if (deniesPlace(event.getPlayer(), event.getBlockPlaced())) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(DENIED);
         }
@@ -157,5 +160,35 @@ public final class BaseTerrainProtectionListener implements Listener {
 
     private boolean protects(Block block) {
         return claims.claimAt(block).isPresent();
+    }
+
+    static boolean deniesPlace(org.bukkit.entity.Player player, Block block, BaseClaimPolicy claims) {
+        Team owner = claims.claimAt(block).map(claim -> claim.team()).orElse(null);
+        Team fighter = claims.fighterTeam(player).orElse(null);
+        return !allowsPlace(owner, fighter);
+    }
+
+    static boolean deniesBreak(
+            org.bukkit.entity.Player player, Block block, boolean playerPlaced, BaseClaimPolicy claims
+    ) {
+        Team owner = claims.claimAt(block).map(claim -> claim.team()).orElse(null);
+        Team fighter = claims.fighterTeam(player).orElse(null);
+        return !allowsBreak(owner, fighter, playerPlaced);
+    }
+
+    private boolean deniesPlace(org.bukkit.entity.Player player, Block block) {
+        return deniesPlace(player, block, claims);
+    }
+
+    private boolean deniesBreak(org.bukkit.entity.Player player, Block block, boolean playerPlaced) {
+        return deniesBreak(player, block, playerPlaced, claims);
+    }
+
+    static boolean allowsPlace(Team claimOwner, Team fighterTeam) {
+        return claimOwner == null || claimOwner == fighterTeam;
+    }
+
+    static boolean allowsBreak(Team claimOwner, Team fighterTeam, boolean playerPlaced) {
+        return claimOwner == null || (playerPlaced && claimOwner == fighterTeam);
     }
 }

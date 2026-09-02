@@ -32,14 +32,6 @@ public final class SoundEffectService {
         play(player, Sound.ENTITY_ENDERMAN_TELEPORT, 1.0f, 1.0f);
     }
 
-    public void playLevelUp(Player player) {
-        play(player, Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 0.8f);
-    }
-
-    public void playBreak(Player player) {
-        play(player, Sound.BLOCK_GLASS_BREAK, 1.0f, 1.0f);
-    }
-
     public void playWelcome(Player player) {
         play(player, Sound.BLOCK_PORTAL_TRAVEL, 1.0f, 1.0f);
     }

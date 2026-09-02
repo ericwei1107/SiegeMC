@@ -11,7 +11,6 @@ import java.util.Objects;
 import woo.siegePlugin.round.ActiveCombatEligibility;
 import woo.siegePlugin.round.ActiveRoundProvider;
 import woo.siegePlugin.map.MapBounds;
-import woo.siegePlugin.sound.SoundEffectService;
 
 /**
  * Records successful active-round placements inside the map footprint and
@@ -22,18 +21,15 @@ public final class PlacedBlockListener implements Listener {
     private final PlacedBlockTracker tracker;
     private final ActiveRoundProvider rounds;
     private final ActiveCombatEligibility eligibility;
-    private final SoundEffectService sounds;
 
     public PlacedBlockListener(
             PlacedBlockTracker tracker,
             ActiveRoundProvider rounds,
-            ActiveCombatEligibility eligibility,
-            SoundEffectService sounds
+            ActiveCombatEligibility eligibility
     ) {
         this.tracker = Objects.requireNonNull(tracker, "tracker");
         this.rounds = Objects.requireNonNull(rounds, "rounds");
         this.eligibility = Objects.requireNonNull(eligibility, "eligibility");
-        this.sounds = Objects.requireNonNull(sounds, "sounds");
     }
 
     /** Records only placements that have survived other protection listeners. */
@@ -50,7 +46,6 @@ public final class PlacedBlockListener implements Listener {
         )).orElse(false);
         if (insideActiveMap) {
             tracker.record(block);
-            sounds.playLevelUp(event.getPlayer());
         }
     }
 
@@ -65,9 +60,7 @@ public final class PlacedBlockListener implements Listener {
     /** Removes the entry only after all protection listeners allow the break. */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSuccessfulTrackedBlockBreak(BlockBreakEvent event) {
-        if (tracker.remove(event.getBlock())) {
-            sounds.playBreak(event.getPlayer());
-        }
+        tracker.remove(event.getBlock());
     }
 
     static boolean isInsideActiveMap(
