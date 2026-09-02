@@ -18,3 +18,8 @@ VPS_REMOTE_USER="minecraft"
 # Directory containing the five authorized clean world folders. It defaults to
 # ~/Downloads/Sieges-master when omitted, so set this only if you move it.
 # MAP_TEMPLATE_SOURCE="/absolute/path/to/Sieges-master"
+
+# The locally authored lobby (the Helloween world). It defaults to
+# ~/mcserver/dev/lobby when omitted. deploy.sh mirrors it to VPS_SERVER_DIR/lobby
+# only while no VPS process has that world open.
+# LOBBY_WORLD_SOURCE="/absolute/path/to/lobby"
