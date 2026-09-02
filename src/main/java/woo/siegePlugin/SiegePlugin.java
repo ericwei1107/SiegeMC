@@ -110,6 +110,7 @@ import woo.siegePlugin.map.SiegeMap;
 import woo.siegePlugin.stats.CombatStatsListener;
 import woo.siegePlugin.stats.MatchStatsService;
 import woo.siegePlugin.stats.MatchStatsTracker;
+import woo.siegePlugin.sound.SoundEffectService;
 import java.io.File;
 import java.io.IOException;
 
@@ -162,6 +163,7 @@ public final class SiegePlugin extends JavaPlugin {
     private SidebarPreferenceService sidebarPreferences;
     private BossBarPreferenceService bossBarPreferences;
     private MobilityCooldownListener mobilityCooldowns;
+    private SoundEffectService sounds;
 
     @Override
     public void onEnable() {
@@ -192,6 +194,7 @@ public final class SiegePlugin extends JavaPlugin {
             return; // stop here — nothing below this line should assume config is valid
         }
 
+        this.sounds = new SoundEffectService(getConfig().getBoolean("sounds.enabled", true));
         this.townyAdapter = TownyAdapter.fromConfig(getConfig());
         this.potionStorageService = new PotionStorageService(this, townyAdapter);
         potionStorageService.warnLegacyRecords(
@@ -422,7 +425,8 @@ public final class SiegePlugin extends JavaPlugin {
                 getLogger(),
                 rotationCoordinator,
                 sidebarPreferences,
-                bossBarPreferences
+                bossBarPreferences,
+                sounds
         );
         siegeCommand.setExecutor(commandHandler);
         siegeCommand.setTabCompleter(commandHandler);
@@ -498,10 +502,10 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new TownSpawnCommandListener(eligibility, teamSpawnLocations), this
+                new TownSpawnCommandListener(eligibility, teamSpawnLocations, sounds), this
         );
         getServer().getPluginManager().registerEvents(
-                new LobbyJoinItemListener(this, playerStateTransitionService), this
+                new LobbyJoinItemListener(this, playerStateTransitionService, sounds), this
         );
         getServer().getPluginManager().registerEvents(new TutorialBookListener(this), this);
         getServer().getPluginManager().registerEvents(
@@ -512,13 +516,14 @@ public final class SiegePlugin extends JavaPlugin {
                 new BaseClaimInteractionListener(baseClaimPolicy, combatTagStatus), this
         );
         getServer().getPluginManager().registerEvents(new CombatTaggedInteractionListener(combatTagStatus), this);
-        getServer().getPluginManager().registerEvents(new CombatTaggedCommandListener(combatTagStatus), this);
+        getServer().getPluginManager().registerEvents(new CombatTaggedCommandListener(combatTagStatus, sounds), this);
         getServer().getPluginManager().registerEvents(new BaseClaimBoundaryListener(baseClaimPolicy), this);
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
                         placedBlockTracker,
                         activeRounds,
-                        eligibility
+                        eligibility,
+                        sounds
                 ),
                 this
         );

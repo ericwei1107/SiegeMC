@@ -9,6 +9,7 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.plugin.java.JavaPlugin;
+import woo.siegePlugin.sound.SoundEffectService;
 import woo.siegePlugin.state.PlayerStateTransitionService;
 
 import java.util.Objects;
@@ -18,10 +19,14 @@ public final class LobbyJoinItemListener implements Listener {
 
     private final JavaPlugin plugin;
     private final PlayerStateTransitionService transitions;
+    private final SoundEffectService sounds;
 
-    public LobbyJoinItemListener(JavaPlugin plugin, PlayerStateTransitionService transitions) {
+    public LobbyJoinItemListener(
+            JavaPlugin plugin, PlayerStateTransitionService transitions, SoundEffectService sounds
+    ) {
         this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.transitions = Objects.requireNonNull(transitions, "transitions");
+        this.sounds = Objects.requireNonNull(sounds, "sounds");
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -30,6 +35,7 @@ public final class LobbyJoinItemListener implements Listener {
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (player.isOnline() && transitions.isInLobbyContext(player)) {
                 LobbyJoinItem.giveTo(player);
+                sounds.playWelcome(player);
             }
         });
     }
@@ -47,6 +53,7 @@ public final class LobbyJoinItemListener implements Listener {
         event.setCancelled(true);
         if (transitions.isInLobbyContext(event.getPlayer())) {
             event.getPlayer().performCommand("siege join");
+            sounds.playConfirmation(event.getPlayer());
         }
     }
 }

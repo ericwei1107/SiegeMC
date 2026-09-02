@@ -74,6 +74,9 @@ sidebar:
   title: "Siege Status"
   server-ip: "Coming soon"
 
+sounds:
+  enabled: true
+
 cooldowns:
   ender-pearl-seconds: 15
   riptide-seconds: 5

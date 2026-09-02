@@ -20,6 +20,7 @@ import woo.siegePlugin.round.RotationCoordinator;
 import woo.siegePlugin.round.RoundPhase;
 import woo.siegePlugin.display.SidebarPreferenceService;
 import woo.siegePlugin.capture.BossBarPreferenceService;
+import woo.siegePlugin.sound.SoundEffectService;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -41,6 +42,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
     private final RotationCoordinator rotation;
     private final SidebarPreferenceService sidebarPreferences;
     private final BossBarPreferenceService bossBarPreferences;
+    private final SoundEffectService sounds;
 
     public SiegeCommand(
             TownyAdapter townyAdapter,
@@ -53,7 +55,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             Logger logger
     ) {
         this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
-                adminCommand, currencyService, kitEditorListener, logger, null, null, null);
+                adminCommand, currencyService, kitEditorListener, logger, null, null, null, null);
     }
 
     public SiegeCommand(
@@ -68,7 +70,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             RotationCoordinator rotation
     ) {
         this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
-                adminCommand, currencyService, kitEditorListener, logger, rotation, null, null);
+                adminCommand, currencyService, kitEditorListener, logger, rotation, null, null, null);
     }
 
     public SiegeCommand(
@@ -84,6 +86,25 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             SidebarPreferenceService sidebarPreferences,
             BossBarPreferenceService bossBarPreferences
     ) {
+        this(townyAdapter, teamSwitchService, teamDisplayService, playerStateTransitionService,
+                adminCommand, currencyService, kitEditorListener, logger, rotation, sidebarPreferences,
+                bossBarPreferences, null);
+    }
+
+    public SiegeCommand(
+            TownyAdapter townyAdapter,
+            TeamSwitchService teamSwitchService,
+            TeamDisplayService teamDisplayService,
+            PlayerStateTransitionService playerStateTransitionService,
+            SiegeAdminCommand adminCommand,
+            CurrencyService currencyService,
+            KitEditorListener kitEditorListener,
+            Logger logger,
+            RotationCoordinator rotation,
+            SidebarPreferenceService sidebarPreferences,
+            BossBarPreferenceService bossBarPreferences,
+            SoundEffectService sounds
+    ) {
         this.townyAdapter = townyAdapter;
         this.teamSwitchService = teamSwitchService;
         this.teamDisplayService = teamDisplayService;
@@ -95,6 +116,15 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         this.rotation = rotation;
         this.sidebarPreferences = sidebarPreferences;
         this.bossBarPreferences = bossBarPreferences;
+        this.sounds = sounds;
+    }
+
+    private void playDenied(Player player) {
+        if (sounds != null) sounds.playDenied(player);
+    }
+
+    private void playSuccess(Player player) {
+        if (sounds != null) sounds.playSuccess(player);
     }
 
     @Override
@@ -157,21 +187,44 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.spectate")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to spectate the siege.");
             return true;
         }
         if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            playDenied(player);
             player.sendMessage("Spectator mode is available only inside an active siege.");
             return true;
         }
         switch (playerStateTransitionService.enterSpectator(player)) {
-            case STARTED -> player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
-            case SPECTATOR_CONTEXT -> player.sendMessage("You are already spectating the siege.");
-            case COMBAT_TAGGED -> player.sendMessage("You cannot spectate while combat-tagged.");
-            case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot spectate during an active capture session.");
-            case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
-            case NOT_IN_SIEGE -> player.sendMessage("Join the active siege before entering spectator mode.");
-            default -> player.sendMessage("Spectator mode could not be entered. Please contact an administrator.");
+            case STARTED -> {
+                playSuccess(player);
+                player.sendMessage("You are now spectating. Use /siege rejoin to return to the battle.");
+            }
+            case SPECTATOR_CONTEXT -> {
+                playDenied(player);
+                player.sendMessage("You are already spectating the siege.");
+            }
+            case COMBAT_TAGGED -> {
+                playDenied(player);
+                player.sendMessage("You cannot spectate while combat-tagged.");
+            }
+            case CAPTURE_SESSION_ACTIVE -> {
+                playDenied(player);
+                player.sendMessage("You cannot spectate during an active capture session.");
+            }
+            case TRANSITION_IN_PROGRESS -> {
+                playDenied(player);
+                player.sendMessage("A siege transition is already in progress.");
+            }
+            case NOT_IN_SIEGE -> {
+                playDenied(player);
+                player.sendMessage("Join the active siege before entering spectator mode.");
+            }
+            default -> {
+                playDenied(player);
+                player.sendMessage("Spectator mode could not be entered. Please contact an administrator.");
+            }
         }
         return true;
     }
@@ -182,10 +235,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.rejoin")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to rejoin the siege.");
             return true;
         }
         if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            playDenied(player);
             player.sendMessage("You can rejoin combat only while a siege is active.");
             return true;
         }
@@ -194,13 +249,24 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
                 case STARTED -> {
                     // The transition service confirms completion after the
                     // durable inventory restore and team-spawn teleport.
+                    playSuccess(player);
                 }
-                case NOT_SPECTATING -> player.sendMessage("You must be in SpectatorTown before you can rejoin the siege.");
-                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
-                default -> player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
+                case NOT_SPECTATING -> {
+                    playDenied(player);
+                    player.sendMessage("You must be in SpectatorTown before you can rejoin the siege.");
+                }
+                case TRANSITION_IN_PROGRESS -> {
+                    playDenied(player);
+                    player.sendMessage("A siege transition is already in progress.");
+                }
+                default -> {
+                    playDenied(player);
+                    player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
+                }
             }
         } catch (RuntimeException exception) {
             logger.log(java.util.logging.Level.SEVERE, "Could not rejoin " + player.getName() + " to the siege.", exception);
+            playDenied(player);
             player.sendMessage("You could not rejoin the siege. Please contact an administrator.");
         }
         return true;
@@ -212,6 +278,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.join")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to join the siege.");
             return true;
         }
@@ -222,10 +289,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             switch (rotation.requestJoin(player.getUniqueId())) {
                 case JOINED, QUEUED -> {
                     // The coordinator reports the outcome once its durable write lands.
+                    playSuccess(player);
                 }
-                case TEMPORARILY_UNAVAILABLE -> player.sendMessage(
-                        "The siege is changing over right now. Try /siege join again in a moment."
-                );
+                case TEMPORARILY_UNAVAILABLE -> {
+                    playDenied(player);
+                    player.sendMessage("The siege is changing over right now. Try /siege join again in a moment.");
+                }
             }
             return true;
         }
@@ -235,15 +304,29 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
                 case STARTED -> {
                     // The service sends the success message once persistence,
                     // teleport, and inventory restoration have all completed.
+                    playSuccess(player);
                 }
-                case ALREADY_IN_SIEGE -> player.sendMessage("You are already in the siege. Use /siege lobby first.");
-                case NOT_IN_LOBBY -> player.sendMessage("You must be in the lobby before joining the siege.");
+                case ALREADY_IN_SIEGE -> {
+                    playDenied(player);
+                    player.sendMessage("You are already in the siege. Use /siege lobby first.");
+                }
+                case NOT_IN_LOBBY -> {
+                    playDenied(player);
+                    player.sendMessage("You must be in the lobby before joining the siege.");
+                }
                 case SPECTATOR_CONTEXT -> player.sendMessage("Use /siege rejoin to return from spectator mode.");
-                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
-                default -> player.sendMessage("You could not join the siege. Please contact an administrator.");
+                case TRANSITION_IN_PROGRESS -> {
+                    playDenied(player);
+                    player.sendMessage("A siege transition is already in progress.");
+                }
+                default -> {
+                    playDenied(player);
+                    player.sendMessage("You could not join the siege. Please contact an administrator.");
+                }
             }
         } catch (RuntimeException exception) {
             logger.log(java.util.logging.Level.SEVERE, "Could not start a siege join for " + player.getName(), exception);
+            playDenied(player);
             player.sendMessage("You could not join the siege. Please contact an administrator.");
         }
         return true;
@@ -255,11 +338,13 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.lobby")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to return to the lobby.");
             return true;
         }
 
         if (rotation != null && rotation.goToLobby(player.getUniqueId())) {
+            playSuccess(player);
             player.sendMessage("You are now waiting in the lobby for the next siege.");
             return true;
         }
@@ -268,16 +353,33 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             switch (playerStateTransitionService.returnToLobby(player)) {
                 case STARTED -> {
                     // The service reports success only after the inventory is durable.
+                    playSuccess(player);
                 }
-                case ALREADY_IN_LOBBY -> player.sendMessage("You are already in the lobby.");
+                case ALREADY_IN_LOBBY -> {
+                    playDenied(player);
+                    player.sendMessage("You are already in the lobby.");
+                }
                 case SPECTATOR_CONTEXT -> player.sendMessage("Spectators must use /siege rejoin to return to the battle.");
-                case COMBAT_TAGGED -> player.sendMessage("You cannot return to the lobby while combat-tagged.");
-                case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot return to the lobby during an active capture session.");
-                case TRANSITION_IN_PROGRESS -> player.sendMessage("A siege transition is already in progress.");
-                default -> player.sendMessage("You could not return to the lobby. Please contact an administrator.");
+                case COMBAT_TAGGED -> {
+                    playDenied(player);
+                    player.sendMessage("You cannot return to the lobby while combat-tagged.");
+                }
+                case CAPTURE_SESSION_ACTIVE -> {
+                    playDenied(player);
+                    player.sendMessage("You cannot return to the lobby during an active capture session.");
+                }
+                case TRANSITION_IN_PROGRESS -> {
+                    playDenied(player);
+                    player.sendMessage("A siege transition is already in progress.");
+                }
+                default -> {
+                    playDenied(player);
+                    player.sendMessage("You could not return to the lobby. Please contact an administrator.");
+                }
             }
         } catch (RuntimeException exception) {
             logger.log(java.util.logging.Level.SEVERE, "Could not start a lobby transition for " + player.getName(), exception);
+            playDenied(player);
             player.sendMessage("You could not return to the lobby. Please contact an administrator.");
         }
         return true;
@@ -289,6 +391,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.kit")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to receive the siege kit.");
             return true;
         }
@@ -303,10 +406,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.shop")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to use the siege shop.");
             return true;
         }
         if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            playDenied(player);
             player.sendMessage("The siege shop is closed between matches.");
             return true;
         }
@@ -327,6 +432,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
         }
 
         if (!player.hasPermission("siege.team")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to check your siege team.");
             return true;
         }
@@ -344,10 +450,12 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
             return true;
         }
         if (!player.hasPermission("siege.switch")) {
+            playDenied(player);
             player.sendMessage("You do not have permission to switch siege teams.");
             return true;
         }
         if (rotation != null && rotation.phase() != RoundPhase.ACTIVE) {
+            playDenied(player);
             player.sendMessage("Teams can be changed only while a siege is active.");
             return true;
         }
@@ -358,6 +466,7 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
 
         Team destination = Team.fromInput(args[1]).orElse(null);
         if (destination == null) {
+            playDenied(player);
             player.sendMessage("Unknown team. Choose red or blue.");
             return true;
         }
@@ -380,20 +489,37 @@ public final class SiegeCommand implements CommandExecutor, TabCompleter {
                         + ", to=" + destination
                         + ", timestamp=" + Instant.now());
                 if (result.teleported()) {
+                    playSuccess(player);
                     player.sendMessage("You switched to " + destination.defaultDisplayName() + ".");
                 } else {
                     player.sendMessage("You switched teams, but teleporting to your team spawn failed. Contact an administrator.");
                     logger.warning("Could not teleport " + player.getName() + " to the " + destination + " spawn.");
                 }
             }
-            case NO_CURRENT_TEAM -> player.sendMessage("You must be on a siege team before you can switch teams.");
-            case ALREADY_ON_TEAM -> player.sendMessage("You are already on " + destination.defaultDisplayName() + ".");
-            case COOLDOWN_ACTIVE -> player.sendMessage(
-                    "You must wait " + formatDuration(result.cooldownRemaining()) + " before switching again."
-            );
-            case COMBAT_TAGGED -> player.sendMessage("You cannot switch teams while combat-tagged.");
-            case CAPTURE_SESSION_ACTIVE -> player.sendMessage("You cannot switch teams during an active capture session.");
-            case WOULD_UNBALANCE_TEAMS -> player.sendMessage("That switch would make the destination team too large.");
+            case NO_CURRENT_TEAM -> {
+                playDenied(player);
+                player.sendMessage("You must be on a siege team before you can switch teams.");
+            }
+            case ALREADY_ON_TEAM -> {
+                playDenied(player);
+                player.sendMessage("You are already on " + destination.defaultDisplayName() + ".");
+            }
+            case COOLDOWN_ACTIVE -> {
+                playDenied(player);
+                player.sendMessage("You must wait " + formatDuration(result.cooldownRemaining()) + " before switching again.");
+            }
+            case COMBAT_TAGGED -> {
+                playDenied(player);
+                player.sendMessage("You cannot switch teams while combat-tagged.");
+            }
+            case CAPTURE_SESSION_ACTIVE -> {
+                playDenied(player);
+                player.sendMessage("You cannot switch teams during an active capture session.");
+            }
+            case WOULD_UNBALANCE_TEAMS -> {
+                playDenied(player);
+                player.sendMessage("That switch would make the destination team too large.");
+            }
         }
         return true;
     }

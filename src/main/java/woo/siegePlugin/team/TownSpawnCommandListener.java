@@ -5,6 +5,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import woo.siegePlugin.round.ActiveCombatEligibility;
+import woo.siegePlugin.sound.SoundEffectService;
 
 import java.util.Locale;
 import java.util.Objects;
@@ -14,10 +15,14 @@ public final class TownSpawnCommandListener implements Listener {
 
     private final ActiveCombatEligibility eligibility;
     private final TeamSpawnLocations spawns;
+    private final SoundEffectService sounds;
 
-    public TownSpawnCommandListener(ActiveCombatEligibility eligibility, TeamSpawnLocations spawns) {
+    public TownSpawnCommandListener(
+            ActiveCombatEligibility eligibility, TeamSpawnLocations spawns, SoundEffectService sounds
+    ) {
         this.eligibility = Objects.requireNonNull(eligibility, "eligibility");
         this.spawns = Objects.requireNonNull(spawns, "spawns");
+        this.sounds = Objects.requireNonNull(sounds, "sounds");
     }
 
     // HIGH lets CombatTaggedCommandListener reject tagged players first at LOWEST,
@@ -29,7 +34,10 @@ public final class TownSpawnCommandListener implements Listener {
         }
         eligibility.fighterTeam(event.getPlayer()).ifPresent(team -> {
             event.setCancelled(true);
-            if (!event.getPlayer().teleport(spawns.get(team))) {
+            if (event.getPlayer().teleport(spawns.get(team))) {
+                sounds.playTeleport(event.getPlayer());
+            } else {
+                sounds.playFailed(event.getPlayer());
                 event.getPlayer().sendMessage("Could not teleport you to your team spawn. Contact an administrator.");
             }
         });
