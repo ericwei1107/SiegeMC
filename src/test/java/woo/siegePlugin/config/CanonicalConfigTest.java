@@ -30,9 +30,9 @@ class CanonicalConfigTest {
         assertEquals("teamBlue_", config.getString("teams.blue.town"));
         assertEquals("SpectatorTown", config.getString("spectator.town"));
         assertEquals("lobby", config.getString("lobby.world"));
-        assertEquals(1.0D, config.getDouble("lobby.spawn.x"));
-        assertEquals(4.0D, config.getDouble("lobby.spawn.y"));
-        assertEquals(0.0D, config.getDouble("lobby.spawn.z"));
+        assertEquals(-210.0D, config.getDouble("lobby.spawn.x"));
+        assertEquals(7.0D, config.getDouble("lobby.spawn.y"));
+        assertEquals(16.0D, config.getDouble("lobby.spawn.z"));
 
         CaptureSettings capture = CaptureSettings.fromConfig(config);
         assertEquals(Duration.ofSeconds(420), capture.sessionDuration());

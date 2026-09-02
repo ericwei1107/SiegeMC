@@ -5,6 +5,7 @@ import woo.siegePlugin.map.MapBounds;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Predicate;
 
 /** The active map manifest's X/Z footprint, used at minecart detonation. */
 public final class MinecartArenaProtection {
@@ -34,12 +35,17 @@ public final class MinecartArenaProtection {
 
     /** Removes protected blocks only; the explosion and its entity damage stay active. */
     public int removeProtectedBlocks(List<Block> affectedBlocks) {
+        return removeProtectedBlocksExcept(affectedBlocks, ignored -> false);
+    }
+
+    /**
+     * Removes authored map blocks while preserving the subset explicitly
+     * allowed to be destroyed, such as current-round player placements.
+     */
+    public int removeProtectedBlocksExcept(List<Block> affectedBlocks, Predicate<Block> destructible) {
         int before = affectedBlocks.size();
-        affectedBlocks.removeIf(block -> protects(
-                block.getWorld().getName(),
-                block.getX(),
-                block.getZ()
-        ));
+        affectedBlocks.removeIf(block -> protects(block.getWorld().getName(), block.getX(), block.getZ())
+                && !destructible.test(block));
         return before - affectedBlocks.size();
     }
 }

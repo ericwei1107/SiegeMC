@@ -34,7 +34,10 @@ public final class LobbyJoinItemListener implements Listener {
         });
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    // A lobby is usually protected, so a right-click on a block may already be
+    // cancelled by Towny or another protection plugin. This marked compass is
+    // our UI control, not a block interaction, and must still invoke /siege join.
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onUse(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND
                 || (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK)

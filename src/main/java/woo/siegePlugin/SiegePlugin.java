@@ -88,7 +88,9 @@ import woo.siegePlugin.team.TeamAssignmentListener;
 import woo.siegePlugin.team.TeamAssignmentService;
 import woo.siegePlugin.team.TeamSpawnLocations;
 import woo.siegePlugin.team.TeamSwitchService;
+import woo.siegePlugin.team.TownyActionBypassListener;
 import woo.siegePlugin.team.TownyAdapter;
+import woo.siegePlugin.team.TownSpawnCommandListener;
 import woo.siegePlugin.round.ActiveCombatEligibility;
 import woo.siegePlugin.round.ActiveRoundContext;
 import woo.siegePlugin.round.ActiveRoundProvider;
@@ -135,6 +137,7 @@ public final class SiegePlugin extends JavaPlugin {
     private MinecartCooldownService minecartCooldownService;
     private MinecartArenaProtection minecartArenaProtection;
     private MinecartDamageListener minecartDamageListener;
+    private TownyActionBypassListener townyActionBypassListener;
     private CurrencyService currencyService;
     private KitService kitService;
     private KitEditorListener kitEditorListener;
@@ -276,6 +279,9 @@ public final class SiegePlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (townyActionBypassListener != null) {
+            townyActionBypassListener.close();
+        }
         if (captureService != null) {
             captureService.stop();
         }
@@ -472,6 +478,9 @@ public final class SiegePlugin extends JavaPlugin {
     }
 
     private void registerListeners() {
+        this.townyActionBypassListener = new TownyActionBypassListener(this);
+        getServer().getPluginManager().registerEvents(townyActionBypassListener, this);
+        townyActionBypassListener.applyTo(getServer().getOnlinePlayers());
         getServer().getPluginManager().registerEvents(
                 new TeamAssignmentListener(this, teamDisplayService::handleJoin),
                 this
@@ -487,6 +496,9 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new PlayerStateTransitionListener(playerStateTransitionService, eligibility, teamSpawnLocations),
                 this
+        );
+        getServer().getPluginManager().registerEvents(
+                new TownSpawnCommandListener(eligibility, teamSpawnLocations), this
         );
         getServer().getPluginManager().registerEvents(
                 new LobbyJoinItemListener(this, playerStateTransitionService), this
@@ -505,7 +517,6 @@ public final class SiegePlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(
                 new PlacedBlockListener(
                         placedBlockTracker,
-                        townyAdapter,
                         activeRounds,
                         eligibility
                 ),
@@ -551,7 +562,7 @@ public final class SiegePlugin extends JavaPlugin {
                 this
         );
         getServer().getPluginManager().registerEvents(
-                new MinecartTerrainProtectionListener(minecartArenaProtection),
+                new MinecartTerrainProtectionListener(minecartArenaProtection, placedBlockTracker),
                 this
         );
         CaptureSettings captureSettings = CaptureSettings.fromConfig(getConfig());

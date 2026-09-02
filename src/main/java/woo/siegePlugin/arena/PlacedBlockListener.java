@@ -6,7 +6,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
-import woo.siegePlugin.team.TownyAdapter;
 
 import java.util.Objects;
 import woo.siegePlugin.round.ActiveCombatEligibility;
@@ -14,24 +13,21 @@ import woo.siegePlugin.round.ActiveRoundProvider;
 import woo.siegePlugin.map.MapBounds;
 
 /**
- * Records successful wilderness placements inside the reset region and lets
- * any player break only those tracked blocks after Towny's normal protection.
+ * Records successful active-round placements inside the map footprint and
+ * lets any player break only those tracked blocks.
  */
 public final class PlacedBlockListener implements Listener {
 
     private final PlacedBlockTracker tracker;
-    private final TownyAdapter townyAdapter;
     private final ActiveRoundProvider rounds;
     private final ActiveCombatEligibility eligibility;
 
     public PlacedBlockListener(
             PlacedBlockTracker tracker,
-            TownyAdapter townyAdapter,
             ActiveRoundProvider rounds,
             ActiveCombatEligibility eligibility
     ) {
         this.tracker = Objects.requireNonNull(tracker, "tracker");
-        this.townyAdapter = Objects.requireNonNull(townyAdapter, "townyAdapter");
         this.rounds = Objects.requireNonNull(rounds, "rounds");
         this.eligibility = Objects.requireNonNull(eligibility, "eligibility");
     }
@@ -44,11 +40,11 @@ public final class PlacedBlockListener implements Listener {
             return;
         }
         Block block = event.getBlockPlaced();
-        boolean open = rounds.current().map(context -> isOpenBattlefield(
+        boolean insideActiveMap = rounds.current().map(context -> isInsideActiveMap(
                 context.bounds(), context.world().getName(), block.getWorld().getName(),
-                block.getX(), block.getZ(), townyAdapter.isWilderness(block.getLocation())
+                block.getX(), block.getZ()
         )).orElse(false);
-        if (open) {
+        if (insideActiveMap) {
             tracker.record(block);
         }
     }
@@ -67,16 +63,14 @@ public final class PlacedBlockListener implements Listener {
         tracker.remove(event.getBlock());
     }
 
-    static boolean isOpenBattlefield(
+    static boolean isInsideActiveMap(
             MapBounds bounds,
             String activeWorldName,
             String blockWorldName,
             int x,
-            int z,
-            boolean isWilderness
+            int z
     ) {
-        return isWilderness
-                && activeWorldName.equals(blockWorldName)
+        return activeWorldName.equals(blockWorldName)
                 && x >= bounds.minX() && x <= bounds.maxX()
                 && z >= bounds.minZ() && z <= bounds.maxZ();
     }
